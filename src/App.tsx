@@ -539,7 +539,7 @@ const App: React.FC = () => {
                     <button className="asset-btn" title="Add Lower Third" onClick={() => addOverlay('lower-third')}><Layers size={18} /><span>Lower</span></button>
                     <button className="asset-btn" title="Add Ticker" onClick={() => addOverlay('ticker')}><Zap size={18} /><span>Ticker</span></button>
                     <button className="asset-btn" title="Add Logo" onClick={async () => {
-                        const path = await (window as any).electronAPI.selectFile(['png', 'jpg', 'jpeg', 'svg', 'webp']);
+                        const path = await (window as any).electron.selectFile({ filters: [{ name: 'Logos', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }] });
                         if (path) addOverlay('logo', path);
                     }}><ImageIcon size={18} /><span>Logo</span></button>
                 </div>
@@ -728,20 +728,6 @@ const App: React.FC = () => {
                                         }} title="Restart"><RotateCcw size={14} /></button>
                                     </div>
 
-                                    <div className="layout-tools" style={{ marginTop: '16px' }}>
-                                        <label className="menu-label">Fit & Layout</label>
-                                        <div className="editor-grid" style={{ marginTop: '8px', gap: '4px' }}>
-                                            <button className={`btn-mini ${(!selectedSource.fit || selectedSource.fit === 'fill') ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'fill' })}>Stretch</button>
-                                            <button className={`btn-mini ${selectedSource.fit === 'cover' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'cover' })}>Cover (Center)</button>
-                                            <button className={`btn-mini ${selectedSource.fit === 'contain' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'contain' })}>Contain</button>
-                                        </div>
-                                        <div className="editor-grid" style={{ marginTop: '8px', gap: '4px' }}>
-                                            <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 0, y: 0, width: 960, height: 1080 })}>Left Half</button>
-                                            <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 960, y: 0, width: 960, height: 1080 })}>Right Half</button>
-                                            <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 0, y: 0, width: 1920, height: 1080 })}>Full</button>
-                                        </div>
-                                    </div>
-
                                     {playbackStatus && playbackStatus.id === selectedSource.id && (
                                         <div className="seeker-widget" style={{ marginTop: '12px' }}>
                                             <div className="time-info" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '4px', opacity: 0.7 }}>
@@ -794,7 +780,21 @@ const App: React.FC = () => {
                                 </div>
                             )}
 
-                            <div className="editor-grid" style={{ marginTop: '16px' }}>
+                            <div className="layout-tools" style={{ marginTop: '16px', padding: '0 12px' }}>
+                                <label className="menu-label">Fit & Layout</label>
+                                <div className="editor-grid" style={{ marginTop: '8px', gap: '4px' }}>
+                                    <button className={`btn-mini ${(!selectedSource.fit || selectedSource.fit === 'fill') ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'fill' })}>Stretch</button>
+                                    <button className={`btn-mini ${selectedSource.fit === 'cover' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'cover' })}>Cover (Center)</button>
+                                    <button className={`btn-mini ${selectedSource.fit === 'contain' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'contain' })}>Contain</button>
+                                </div>
+                                <div className="editor-grid" style={{ marginTop: '8px', gap: '4px' }}>
+                                    <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 0, y: 0, width: 960, height: 1080 })}>Left Half</button>
+                                    <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 960, y: 0, width: 960, height: 1080 })}>Right Half</button>
+                                    <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 0, y: 0, width: 1920, height: 1080 })}>Full</button>
+                                </div>
+                            </div>
+
+                            <div className="editor-grid" style={{ marginTop: '16px', padding: '0 12px' }}>
                                 <div className="editor-field"><label>X</label><input type="number" value={selectedSource.x} onChange={(e) => updateSourceTransform(selectedSource.id, { x: parseInt(e.target.value) || 0 })} /></div>
                                 <div className="editor-field"><label>Y</label><input type="number" value={selectedSource.y} onChange={(e) => updateSourceTransform(selectedSource.id, { y: parseInt(e.target.value) || 0 })} /></div>
                                 <div className="editor-field"><label>W</label><input type="number" value={selectedSource.width} onChange={(e) => updateSourceTransform(selectedSource.id, { width: parseInt(e.target.value) || 0 })} /></div>
@@ -897,8 +897,8 @@ const App: React.FC = () => {
             <div className="modal-head">
                 <h2>Add Input</h2>
                 <div className="tab-row">
-                    <button className={selectorTab === 'screens' ? 'active' : ''} onClick={() => setSelectorTab('screens')}>Screens</button>
-                    <button className={selectorTab === 'cameras' ? 'active' : ''} onClick={() => setSelectorTab('cameras')}>Cameras</button>
+                    <button className={selectorTab === 'screens' ? 'active' : ''} onClick={() => setSelectorTab('screens')} style={{ color: selectorTab === 'screens' ? 'var(--accent)' : 'var(--tx-1)' }}>Screens</button>
+                    <button className={selectorTab === 'cameras' ? 'active' : ''} onClick={() => setSelectorTab('cameras')} style={{ color: selectorTab === 'cameras' ? 'var(--accent)' : 'var(--tx-1)' }}>Cameras</button>
                 </div>
                 <button onClick={() => setIsSelectorOpen(false)} className="close-x"><X size={20} /></button>
             </div>
