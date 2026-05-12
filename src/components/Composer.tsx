@@ -15,6 +15,9 @@ interface Source {
   fit?: 'cover' | 'contain' | 'fill';
   page?: number;
   totalPages?: number;
+  title?: string;
+  subtitle?: string;
+  cover?: string;
   style?: {
     fontSize: number;
     fontFamily: string;
@@ -194,6 +197,23 @@ const Composer: React.FC<ComposerProps> = ({
                 audioNodes.current[source.id] = { source: sourceNode, gain: gainNode };
             }
         }
+
+        if (source.type === 'audio' && source.data && !audioElements.current[source.id]) {
+            const audio = new Audio(source.data); audio.loop = true; audio.crossOrigin = 'anonymous';
+            if (source.playing !== false) audio.play().catch(e => console.error('Audio play error:', e));
+            audioElements.current[source.id] = audio;
+            if (audioContext.current && audioDestination.current) {
+                const sourceNode = audioContext.current.createMediaElementSource(audio);
+                const gainNode = audioContext.current.createGain(); gainNode.gain.value = source.volume ?? 1.0;
+                sourceNode.connect(gainNode); gainNode.connect(audioDestination.current); gainNode.connect(audioContext.current.destination);
+                audioNodes.current[source.id] = { source: sourceNode, gain: gainNode };
+            }
+        }
+
+        if (source.type === 'audio' && source.cover && !imageElements.current[source.id + '-cover']) {
+            const img = new Image(); img.src = source.cover; img.crossOrigin = 'anonymous';
+            imageElements.current[source.id + '-cover'] = img;
+        }
       }
     };
     updateSources();
@@ -315,7 +335,21 @@ const Composer: React.FC<ComposerProps> = ({
           else { ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fillRect(source.x, source.y, source.width, source.height); ctx.fillStyle = 'white'; ctx.font = '24px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Loading Slide...', source.x + source.width / 2, source.y + source.height / 2); }
         } else if (source.type === 'image') {
           const img = imageElements.current[source.id]; if (img && img.complete) drawSource(source, img, ctx);
-        } else if (source.type !== 'audio') {
+        } else if (source.type === 'audio') {
+          const cover = imageElements.current[source.id + '-cover'];
+          if (cover && cover.complete) {
+              drawSource(source, cover, ctx);
+          } else {
+              ctx.fillStyle = '#0a0a0a'; ctx.fillRect(source.x, source.y, source.width, source.height);
+              ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fillRect(source.x + 40, source.y + 40, source.width - 80, source.height - 80);
+          }
+          ctx.fillStyle = 'white'; ctx.textAlign = 'center';
+          ctx.font = 'bold 80px Outfit, sans-serif';
+          ctx.fillText((source.title || '').toUpperCase(), source.x + source.width / 2, source.y + source.height / 2);
+          ctx.font = '40px Inter, sans-serif';
+          ctx.fillStyle = 'rgba(255,255,255,0.6)';
+          ctx.fillText(source.subtitle || '', source.x + source.width / 2, source.y + source.height / 2 + 70);
+        } else {
           const video = videoElements.current[source.id];
           if (video && video.readyState >= 2) drawSource(source, video, ctx);
         }

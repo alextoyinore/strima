@@ -18,6 +18,9 @@ interface Source {
   fit?: 'cover' | 'contain' | 'fill';
   page?: number;
   totalPages?: number;
+  title?: string;
+  subtitle?: string;
+  cover?: string;
   style?: {
     fontSize: number;
     fontFamily: string;
@@ -333,7 +336,17 @@ const App: React.FC = () => {
   const addAudioSource = async () => {
     const dataUrl = await window.electron.selectFile({ filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'aac'] }] });
     if (dataUrl) {
-      const newSource: Source = { id: `aud-${Date.now()}`, name: 'Audio', type: 'audio', data: dataUrl, visible: true, x: 0, y: 0, width: 0, height: 0, playing: true };
+      const newSource: Source = { 
+        id: `aud-${Date.now()}`, 
+        name: 'Audio Source', 
+        type: 'audio', 
+        data: dataUrl, 
+        visible: true, 
+        x: 0, y: 0, width: 1920, height: 1080, 
+        playing: true,
+        title: 'NOW PLAYING',
+        subtitle: 'Audio Track'
+      };
       const updated = [...previewSources, newSource];
       setPreviewSources(updated);
       setSelectedSourceId(newSource.id);
@@ -774,6 +787,29 @@ const App: React.FC = () => {
                                         <button className={`font-tool-btn ${selectedSource.style?.textAlign === 'right' ? 'active' : ''}`} onClick={() => updateSourceStyle(selectedSource.id, { textAlign: 'right' })}><AlignRight size={14} /></button>
                                     </div>
                                 </>
+                            )}
+
+                            {selectedSource.type === 'audio' && (
+                                <div className="audio-metadata-editor" style={{ marginBottom: '16px', padding: '12px', background: 'var(--bg-1)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                                    <div className="editor-field"><label>Track Title</label><input type="text" value={selectedSource.title || ''} onChange={(e) => {
+                                        const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, title: e.target.value } : s);
+                                        setPreviewSources(updated);
+                                        setScenes(scenes.map(sc => sc.id === activeSceneId ? { ...sc, sources: updated } : sc));
+                                    }} /></div>
+                                    <div className="editor-field" style={{ marginTop: '8px' }}><label>Subtitle / Artist</label><input type="text" value={selectedSource.subtitle || ''} onChange={(e) => {
+                                        const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, subtitle: e.target.value } : s);
+                                        setPreviewSources(updated);
+                                        setScenes(scenes.map(sc => sc.id === activeSceneId ? { ...sc, sources: updated } : sc));
+                                    }} /></div>
+                                    <button className="btn-ghost" style={{ marginTop: '12px' }} onClick={async () => {
+                                        const path = await (window as any).electron.selectFile({ filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }] });
+                                        if (path) {
+                                            const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, cover: path } : s);
+                                            setPreviewSources(updated);
+                                            setScenes(scenes.map(sc => sc.id === activeSceneId ? { ...sc, sources: updated } : sc));
+                                        }
+                                    }}><ImageIcon size={14} /> Change Background Image</button>
+                                </div>
                             )}
 
                             {(selectedSource.type === 'video' || selectedSource.type === 'audio') && (
