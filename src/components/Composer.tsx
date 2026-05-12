@@ -22,7 +22,6 @@ interface Source {
     bold: boolean;
     italic: boolean;
     textAlign: 'left' | 'center' | 'right';
-    accentColor?: string;
   };
 }
 
@@ -75,7 +74,6 @@ const Composer: React.FC<ComposerProps> = ({
   const videoElements = useRef<Record<string, HTMLVideoElement>>({});
   const audioElements = useRef<Record<string, HTMLAudioElement>>({});
   const imageElements = useRef<Record<string, HTMLImageElement>>({});
-  const audioPreviewCanvases = useRef<Record<string, HTMLCanvasElement>>({});
   const pdfCanvases = useRef<Record<string, HTMLCanvasElement>>({});
   const streams = useRef<Record<string, MediaStream>>({});
   const animationFrameRef = useRef<number>();
@@ -98,21 +96,7 @@ const Composer: React.FC<ComposerProps> = ({
         audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         audioDestination.current = audioContext.current.createMediaStreamDestination();
     }
-  }, []);
 
-  useEffect(() => {
-    if (onStreamCreated && canvasRef.current && audioDestination.current) {
-        const videoStream = canvasRef.current.captureStream(30);
-        const audioStream = audioDestination.current.stream;
-        const combinedStream = new MediaStream([
-            ...videoStream.getVideoTracks(),
-            ...audioStream.getAudioTracks()
-        ]);
-        onStreamCreated(combinedStream);
-    }
-  }, [onStreamCreated]);
-
-  useEffect(() => {
     const loadPdf = async (source: Source) => {
         const pageNum = source.page || 1;
         const cacheKey = `${source.id}-${pageNum}`;
@@ -210,113 +194,12 @@ const Composer: React.FC<ComposerProps> = ({
                 audioNodes.current[source.id] = { source: sourceNode, gain: gainNode };
             }
         }
-
-        if (source.type === 'audio' && source.data && !audioElements.current[source.id]) {
-            const audio = new Audio();
-            audio.src = source.data; audio.crossOrigin = 'anonymous'; audio.loop = true; audio.muted = false; audio.volume = 1.0;
-            if (source.playing !== false) audio.play().catch(e => console.error('Audio play error:', e));
-            audioElements.current[source.id] = audio;
-            if (audioContext.current && audioDestination.current) {
-                const sourceNode = audioContext.current.createMediaElementSource(audio);
-                const gainNode = audioContext.current.createGain(); gainNode.gain.value = source.volume ?? 1.0;
-                sourceNode.connect(gainNode); gainNode.connect(audioDestination.current); gainNode.connect(audioContext.current.destination);
-                audioNodes.current[source.id] = { source: sourceNode, gain: gainNode };
-            }
-        }
       }
-
-      // Pre-render audio previews if they don't exist or if properties changed
-      sources.filter(s => s.type === 'audio').forEach(source => {
-          const cacheKey = `${source.id}-${source.width}-${source.height}-${source.style?.color}-${source.style?.accentColor}-${source.name}`;
-          if (!audioPreviewCanvases.current[cacheKey]) {
-              const offCanvas = document.createElement('canvas');
-              const boxW = source.width || 400;
-              const boxH = source.height || 120;
-              offCanvas.width = boxW;
-              offCanvas.height = boxH;
-              const oCtx = offCanvas.getContext('2d');
-              if (oCtx) {
-                  const primaryColor = source.style?.color || '#6366f1';
-                  const accentColor = source.style?.accentColor || '#0f172a';
-                  
-                  oCtx.fillStyle = accentColor;
-                  oCtx.fillRect(0, 0, boxW, boxH);
-                  
-                  const grad = oCtx.createLinearGradient(0, 0, 0, boxH);
-                  grad.addColorStop(0, 'rgba(0,0,0,0)');
-                  grad.addColorStop(1, 'rgba(0,0,0,0.4)');
-                  oCtx.fillStyle = grad;
-                  oCtx.fillRect(0, 0, boxW, boxH);
-
-                  oCtx.strokeStyle = primaryColor;
-                  oCtx.lineWidth = 4;
-                  oCtx.strokeRect(0, 0, boxW, boxH);
-                  
-                  oCtx.fillStyle = 'white';
-                  const fontSize = Math.min(boxW / 10, boxH / 4, 40);
-                  oCtx.font = `bold ${fontSize}px Outfit, sans-serif`;
-                  oCtx.textAlign = 'center';
-                  oCtx.fillText(source.name.toUpperCase(), boxW / 2, boxH / 2 - fontSize/4);
-                  
-                  oCtx.font = `${fontSize/2}px Inter, sans-serif`;
-                  oCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                  oCtx.fillText('AUDIO BROADCAST SOURCE', boxW / 2, boxH / 2 + fontSize/2 + 5);
-                  
-                  // Static visualizer bars for the asset
-                  const barCount = Math.floor(boxW / 20);
-                  const barWidth = (boxW - 40) / barCount - 4;
-                  oCtx.fillStyle = primaryColor;
-                  for (let i = 0; i < barCount; i++) {
-                      const h = (boxH / 4) * (0.4 + Math.sin(i * 0.5) * 0.3 + 0.3);
-                      oCtx.fillRect(20 + i * (barWidth + 4), boxH - 10, barWidth, -h);
-                  }
-              }
-              audioPreviewCanvases.current[cacheKey] = offCanvas;
-          }
-      });
-
-      // Handle pause/play updates
-      sources.forEach(source => {
-          const media = videoElements.current[source.id] || audioElements.current[source.id];
-          if (media) {
-              if (source.playing && media.paused) media.play().catch(() => {});
-              else if (!source.playing && !media.paused) media.pause();
-              
-              if (source.volume !== undefined && audioNodes.current[source.id]) {
-                  audioNodes.current[source.id].gain.gain.value = source.volume;
-              }
-          }
-      });
     };
     updateSources();
   }, [sources, overlays, interactive]);
 
-  // Handle Seek Requests
-  useEffect(() => {
-    if (seekRequest) {
-        const media = videoElements.current[seekRequest.id] || audioElements.current[seekRequest.id];
-        if (media) {
-            media.currentTime = seekRequest.time;
-        }
-    }
-  }, [seekRequest]);
-
-  // Report Playback Status
-  useEffect(() => {
-    const interval = setInterval(() => {
-        if (!onPlaybackUpdate || !selectedSourceId) return;
-        const media = videoElements.current[selectedSourceId] || audioElements.current[selectedSourceId];
-        if (media && !media.paused) {
-            onPlaybackUpdate(selectedSourceId, media.currentTime, media.duration || 0);
-        }
-    }, 500);
-    return () => clearInterval(interval);
-  }, [selectedSourceId, onPlaybackUpdate]);
-
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (audioContext.current?.state === 'suspended') {
-        audioContext.current.resume();
-    }
     if (!interactive || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const scaleX = 1920 / rect.width;
@@ -394,23 +277,7 @@ const Composer: React.FC<ComposerProps> = ({
           else { ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fillRect(source.x, source.y, source.width, source.height); ctx.fillStyle = 'white'; ctx.font = '24px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Loading Slide...', source.x + source.width / 2, source.y + source.height / 2); }
         } else if (source.type === 'image') {
           const img = imageElements.current[source.id]; if (img && img.complete) drawSource(source, img, ctx);
-        } else if (source.type === 'audio') {
-            const cacheKey = `${source.id}-${source.width}-${source.height}-${source.style?.color}-${source.style?.accentColor}-${source.name}`;
-            const preview = audioPreviewCanvases.current[cacheKey];
-            if (preview) {
-                ctx.drawImage(preview, source.x, source.y);
-                if (source.playing) {
-                    // Very simple, low-cost animation overlay if playing
-                    ctx.fillStyle = source.style?.color || '#6366f1';
-                    ctx.globalAlpha = 0.3 * Math.abs(Math.sin(Date.now() / 500));
-                    ctx.fillRect(source.x + 5, source.y + source.height - 15, 10, 10);
-                    ctx.globalAlpha = 1.0;
-                }
-            } else {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-                ctx.fillRect(source.x, source.y, source.width, source.height);
-            }
-        } else {
+        } else if (source.type !== 'audio') {
           const video = videoElements.current[source.id];
           if (video && video.readyState >= 2) drawSource(source, video, ctx);
         }

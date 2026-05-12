@@ -87,7 +87,9 @@ ipcMain.handle('select-file', async (event, options) => {
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 
 ipcMain.on('save-config', (event, config) => {
-  fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+  fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), (err) => {
+    if (err) console.error('Failed to save config:', err);
+  });
 });
 
 ipcMain.handle('load-config', async () => {

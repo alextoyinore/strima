@@ -25,7 +25,6 @@ interface Source {
     bold: boolean;
     italic: boolean;
     textAlign: 'left' | 'center' | 'right';
-    accentColor?: string;
   };
 }
 
@@ -144,9 +143,6 @@ const App: React.FC = () => {
           if (config.streamingConfig) setStreamingConfig(config.streamingConfig);
           if (config.themeMode) setThemeMode(config.themeMode);
           if (config.accentColor) setAccentColor(config.accentColor);
-          if (config.consoleHeight) setConsoleHeight(config.consoleHeight);
-          if (config.sidebarWidth) setSidebarWidth(config.sidebarWidth);
-          if (config.assetSidebarWidth) setAssetSidebarWidth(config.assetSidebarWidth);
         }
       } catch (e) {}
     };
@@ -154,20 +150,8 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-        window.electron.saveConfig({ 
-            scenes, 
-            activeSceneId, 
-            streamingConfig, 
-            themeMode, 
-            accentColor,
-            consoleHeight,
-            sidebarWidth,
-            assetSidebarWidth
-        });
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [scenes, activeSceneId, streamingConfig, themeMode, accentColor, consoleHeight, sidebarWidth, assetSidebarWidth]);
+    window.electron.saveConfig({ scenes, activeSceneId, streamingConfig, themeMode, accentColor });
+  }, [scenes, activeSceneId, streamingConfig, themeMode, accentColor]);
 
   useEffect(() => {
     const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -329,7 +313,7 @@ const App: React.FC = () => {
   const addAudioSource = async () => {
     const dataUrl = await window.electron.selectFile({ filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'aac'] }] });
     if (dataUrl) {
-      const newSource: Source = { id: `aud-${Date.now()}`, name: 'Audio', type: 'audio', data: dataUrl, visible: true, x: 100, y: 100, width: 400, height: 120, playing: true };
+      const newSource: Source = { id: `aud-${Date.now()}`, name: 'Audio', type: 'audio', data: dataUrl, visible: true, x: 0, y: 0, width: 0, height: 0, playing: true };
       const updated = [...previewSources, newSource];
       setPreviewSources(updated);
       setSelectedSourceId(newSource.id);
@@ -658,7 +642,7 @@ const App: React.FC = () => {
                                 <span className="row-name">{source.name}</span>
                             </div>
                             <div className="row-controls">
-                                {(source.type === 'camera' || source.type === 'video' || source.type === 'image' || source.type === 'pdf' || source.type === 'slides' || source.type === 'audio') && (
+                                {(source.type === 'camera' || source.type === 'video' || source.type === 'image' || source.type === 'pdf' || source.type === 'slides') && (
                                     <button className="icon-btn xs" onClick={(e) => { e.stopPropagation(); toggleSourceFullscreen(source.id); }}><Maximize2 size={12} /></button>
                                 )}
                                 <button className="icon-btn xs" onClick={(e) => { e.stopPropagation(); toggleVisibility(source.id); }}>
@@ -834,24 +818,7 @@ const App: React.FC = () => {
                                                     }}
                                                 />
                                             </div>
-
-                                            {selectedSource.type === 'audio' && (
-                                                <div className="audio-theme-control" style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
-                                                    <label className="menu-label">Preview Theme</label>
-                                                    <div className="editor-grid" style={{ marginTop: '8px' }}>
-                                                        <div className="editor-field">
-                                                            <label>Primary</label>
-                                                            <input type="color" value={selectedSource.style?.color || '#6366f1'} onChange={(e) => updateSourceStyle(selectedSource.id, { color: e.target.value })} style={{ padding: '2px', height: '32px' }} />
-                                                        </div>
-                                                        <div className="editor-field">
-                                                            <label>Accent</label>
-                                                            <input type="color" value={selectedSource.style?.accentColor || '#0f172a'} onChange={(e) => updateSourceStyle(selectedSource.id, { accentColor: e.target.value })} style={{ padding: '2px', height: '32px' }} />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
+                                        </div>                                    )}
                                 </div>
                             )}
 
