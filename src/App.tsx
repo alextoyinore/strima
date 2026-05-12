@@ -15,6 +15,7 @@ interface Source {
   height: number;
   playing?: boolean;
   volume?: number;
+  fit?: 'cover' | 'contain' | 'fill';
   style?: {
     fontSize: number;
     fontFamily: string;
@@ -31,6 +32,12 @@ interface Overlay {
   title: string;
   subtitle: string;
   visible: boolean;
+  speed?: number;
+  style?: {
+    fontSize: number;
+    color: string;
+    backgroundColor: string;
+  };
 }
 
 interface Scene {
@@ -307,7 +314,7 @@ const App: React.FC = () => {
     }
   };
 
-  const updateSourceTransform = (id: string, updates: Partial<Pick<Source, 'x' | 'y' | 'width' | 'height'>>) => {
+  const updateSourceTransform = (id: string, updates: Partial<Pick<Source, 'x' | 'y' | 'width' | 'height' | 'fit'>>) => {
     const updated = previewSources.map(s => s.id === id ? { ...s, ...updates } : s);
     setPreviewSources(updated);
     setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
@@ -697,6 +704,20 @@ const App: React.FC = () => {
                                             const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, playing: true } : s);
                                             setPreviewSources(updated);
                                         }} title="Restart"><RotateCcw size={14} /></button>
+                                    </div>
+
+                                    <div className="layout-tools" style={{ marginTop: '16px' }}>
+                                        <label className="menu-label">Fit & Layout</label>
+                                        <div className="editor-grid" style={{ marginTop: '8px', gap: '4px' }}>
+                                            <button className={`btn-mini ${(!selectedSource.fit || selectedSource.fit === 'fill') ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'fill' })}>Stretch</button>
+                                            <button className={`btn-mini ${selectedSource.fit === 'cover' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'cover' })}>Cover (Center)</button>
+                                            <button className={`btn-mini ${selectedSource.fit === 'contain' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'contain' })}>Contain</button>
+                                        </div>
+                                        <div className="editor-grid" style={{ marginTop: '8px', gap: '4px' }}>
+                                            <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 0, y: 0, width: 960, height: 1080 })}>Left Half</button>
+                                            <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 960, y: 0, width: 960, height: 1080 })}>Right Half</button>
+                                            <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 0, y: 0, width: 1920, height: 1080 })}>Full</button>
+                                        </div>
                                     </div>
 
                                     {playbackStatus && playbackStatus.id === selectedSource.id && (
