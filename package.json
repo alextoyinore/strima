@@ -1,8 +1,8 @@
 {
   "name": "strima",
-  "productName": "Strima",
+  "productName": "strima",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Simple easy to use live streaming app",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
