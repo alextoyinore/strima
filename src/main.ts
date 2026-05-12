@@ -14,10 +14,23 @@ protocol.registerSchemesAsPrivileged([
   { scheme: 'media', privileges: { bypassCSP: true, stream: true, secure: true, supportFetchAPI: true, corsEnabled: true } }
 ]);
 
+const WINDOW_STATE_PATH = path.join(app.getPath('userData'), 'window-state.json');
+
 const createWindow = () => {
+  let windowState = { width: 1100, height: 700, x: undefined, y: undefined };
+  try {
+    if (fs.existsSync(WINDOW_STATE_PATH)) {
+      windowState = JSON.parse(fs.readFileSync(WINDOW_STATE_PATH, 'utf-8'));
+    }
+  } catch (e) {
+    console.error('Failed to load window state', e);
+  }
+
   const mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    width: windowState.width,
+    height: windowState.height,
+    x: windowState.x,
+    y: windowState.y,
     frame: false,
     backgroundColor: '#000000',
     icon: path.join(__dirname, '../assets/icon.png'),
@@ -26,6 +39,16 @@ const createWindow = () => {
       sandbox: false,
     },
   });
+
+  const saveState = () => {
+    try {
+      const bounds = mainWindow.getBounds();
+      fs.writeFileSync(WINDOW_STATE_PATH, JSON.stringify(bounds));
+    } catch (e) {}
+  };
+
+  mainWindow.on('resize', saveState);
+  mainWindow.on('move', saveState);
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);

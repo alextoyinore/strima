@@ -35,7 +35,10 @@
 .accent-electric { --accent-rgb: 30, 64, 175; }
 
 /* Dynamic Accent Variable */
-:root { --accent: rgba(var(--accent-rgb), var(--accent-alpha)); }
+:root { 
+  --accent-solid: rgb(var(--accent-rgb));
+  --accent: rgba(var(--accent-rgb), var(--accent-alpha)); 
+}
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -74,7 +77,7 @@ body {
   -webkit-app-region: drag;
 }
 
-.brand-icon { color: var(--accent); }
+.brand-icon { color: var(--accent-solid); }
 .app-title {
   font-family: 'Outfit', sans-serif;
   font-size: 10px;
