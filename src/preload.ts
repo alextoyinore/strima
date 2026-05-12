@@ -1,0 +1,12 @@
+import { contextBridge, ipcRenderer } from 'electron';
+
+contextBridge.exposeInMainWorld('electron', {
+  getSources: () => ipcRenderer.invoke('get-sources'),
+  startFFmpeg: (options: any) => ipcRenderer.invoke('start-ffmpeg', options),
+  stopFFmpeg: () => ipcRenderer.invoke('stop-ffmpeg'),
+  sendChunk: (chunk: ArrayBuffer) => ipcRenderer.send('ffmpeg-chunk', new Uint8Array(chunk)),
+  windowControl: (command: 'minimize' | 'maximize' | 'close') => ipcRenderer.send('window-control', command),
+  selectFile: (options: any) => ipcRenderer.invoke('select-file', options),
+  saveConfig: (config: any) => ipcRenderer.send('save-config', config),
+  loadConfig: () => ipcRenderer.invoke('load-config'),
+});
