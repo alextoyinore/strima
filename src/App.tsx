@@ -104,6 +104,8 @@ const App: React.FC = () => {
   const [assetSidebarWidth, setAssetSidebarWidth] = useState(160);
   const [isPdfGridOpen, setIsPdfGridOpen] = useState(false);
   const [pdfGridSourceId, setPdfGridSourceId] = useState<string | null>(null);
+  const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const isResizingRef = useRef<'console' | 'sidebar' | 'asset-sidebar' | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -143,15 +145,33 @@ const App: React.FC = () => {
           if (config.streamingConfig) setStreamingConfig(config.streamingConfig);
           if (config.themeMode) setThemeMode(config.themeMode);
           if (config.accentColor) setAccentColor(config.accentColor);
+          if (config.isAutoSaveEnabled !== undefined) setIsAutoSaveEnabled(config.isAutoSaveEnabled);
+          if (config.consoleHeight) setConsoleHeight(config.consoleHeight);
+          if (config.sidebarWidth) setSidebarWidth(config.sidebarWidth);
+          if (config.assetSidebarWidth) setAssetSidebarWidth(config.assetSidebarWidth);
         }
       } catch (e) {}
     };
     loadData();
   }, []);
 
+  const saveWorkspace = () => {
+    setIsSaving(true);
+    window.electron.saveConfig({ 
+      scenes, activeSceneId, streamingConfig, themeMode, accentColor, isAutoSaveEnabled,
+      consoleHeight, sidebarWidth, assetSidebarWidth 
+    });
+    setTimeout(() => setIsSaving(false), 1000);
+  };
+
   useEffect(() => {
-    window.electron.saveConfig({ scenes, activeSceneId, streamingConfig, themeMode, accentColor });
-  }, [scenes, activeSceneId, streamingConfig, themeMode, accentColor]);
+    if (isAutoSaveEnabled) {
+      window.electron.saveConfig({ 
+        scenes, activeSceneId, streamingConfig, themeMode, accentColor, isAutoSaveEnabled,
+        consoleHeight, sidebarWidth, assetSidebarWidth 
+      });
+    }
+  }, [scenes, activeSceneId, streamingConfig, themeMode, accentColor, isAutoSaveEnabled, consoleHeight, sidebarWidth, assetSidebarWidth]);
 
   useEffect(() => {
     const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -514,6 +534,9 @@ const App: React.FC = () => {
             </div>
         </div>
         <div className="header-right">
+          <button className="icon-btn" onClick={saveWorkspace} title={isSaving ? 'Workspace Saved!' : 'Save Workspace'} style={{ marginRight: '8px' }}>
+            <Save size={20} className={isSaving ? 'animate-pulse' : ''} style={{ color: isSaving ? 'var(--accent-solid)' : 'inherit' }} />
+          </button>
           <div className="theme-selector-container" ref={themeMenuRef}>
             <button className="icon-btn" onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}>
               {resolvedTheme === 'dark' ? <Moon size={20} /> : <Sun size={20} />}
@@ -969,10 +992,29 @@ const App: React.FC = () => {
                 <button onClick={() => setIsSettingsOpen(false)} className="close-x"><X size={20} /></button>
             </div>
             <div className="modal-form">
+                <div className="form-group">
+                    <label>Workspace Management</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'var(--bg-1)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                        <div className="flex-1">
+                            <div style={{ fontSize: '14px', fontWeight: '600' }}>Auto-save Changes</div>
+                            <div style={{ fontSize: '12px', opacity: 0.6 }}>Automatically persist workspace modifications</div>
+                        </div>
+                        <button 
+                            className={`toggle-btn ${isAutoSaveEnabled ? 'active' : ''}`} 
+                            onClick={() => setIsAutoSaveEnabled(!isAutoSaveEnabled)}
+                            style={{ padding: '6px 12px' }}
+                        >
+                            {isAutoSaveEnabled ? 'Enabled' : 'Disabled'}
+                        </button>
+                    </div>
+                </div>
+                <div className="menu-divider" style={{ margin: '16px 0' }}></div>
                 <div className="form-group"><label>RTMP URL</label><input type="text" value={streamingConfig.rtmpUrl} onChange={(e) => setStreamingConfig({ ...streamingConfig, rtmpUrl: e.target.value })} /></div>
                 <div className="form-group"><label>Stream Key</label><input type="password" value={streamingConfig.streamKey} onChange={(e) => setStreamingConfig({ ...streamingConfig, streamKey: e.target.value })} /></div>
             </div>
-            <div className="modal-foot"><button className="btn-primary" onClick={() => setIsSettingsOpen(false)}>Save</button></div>
+            <div className="modal-foot">
+                <button className="btn-primary" onClick={() => setIsSettingsOpen(false)}>Done</button>
+            </div>
           </div>
         </div>
       )}

@@ -199,6 +199,44 @@ const Composer: React.FC<ComposerProps> = ({
     updateSources();
   }, [sources, overlays, interactive]);
 
+  // Sync Playback State (Playing, Volume)
+  useEffect(() => {
+    sources.forEach(source => {
+      const el = videoElements.current[source.id] || audioElements.current[source.id];
+      if (!el) return;
+
+      if (source.playing === false && !el.paused) el.pause();
+      if (source.playing !== false && el.paused) el.play().catch(() => {});
+
+      const node = audioNodes.current[source.id];
+      if (node && source.volume !== undefined) {
+        node.gain.gain.setTargetAtTime(source.volume, audioContext.current!.currentTime, 0.05);
+      }
+    });
+  }, [sources]);
+
+  // Handle Seek Requests
+  useEffect(() => {
+    if (seekRequest) {
+      const el = videoElements.current[seekRequest.id] || audioElements.current[seekRequest.id];
+      if (el) el.currentTime = seekRequest.time;
+    }
+  }, [seekRequest]);
+
+  // Report Playback Progress
+  useEffect(() => {
+    if (!onPlaybackUpdate) return;
+    const interval = setInterval(() => {
+        if (selectedSourceId) {
+            const el = videoElements.current[selectedSourceId] || audioElements.current[selectedSourceId];
+            if (el && !isNaN(el.duration)) {
+                onPlaybackUpdate(selectedSourceId, el.currentTime, el.duration);
+            }
+        }
+    }, 100);
+    return () => clearInterval(interval);
+  }, [onPlaybackUpdate, selectedSourceId]);
+
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!interactive || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
