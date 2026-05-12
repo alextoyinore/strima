@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward } from 'lucide-react';
+import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, ChevronLeft, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward } from 'lucide-react';
 import Composer from './components/Composer';
 
 interface Source {
@@ -16,6 +16,8 @@ interface Source {
   playing?: boolean;
   volume?: number;
   fit?: 'cover' | 'contain' | 'fill';
+  page?: number;
+  totalPages?: number;
   style?: {
     fontSize: number;
     fontFamily: string;
@@ -99,7 +101,9 @@ const App: React.FC = () => {
   // Resizable state
   const [consoleHeight, setConsoleHeight] = useState(400);
   const [sidebarWidth, setSidebarWidth] = useState(200);
-  const [assetSidebarWidth, setAssetSidebarWidth] = useState(200);
+  const [assetSidebarWidth, setAssetSidebarWidth] = useState(160);
+  const [isPdfGridOpen, setIsPdfGridOpen] = useState(false);
+  const [pdfGridSourceId, setPdfGridSourceId] = useState<string | null>(null);
   const isResizingRef = useRef<'console' | 'sidebar' | 'asset-sidebar' | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -290,7 +294,15 @@ const App: React.FC = () => {
     const exts = type === 'pdf' ? ['pdf'] : ['pptx', 'ppt'];
     const dataUrl = await window.electron.selectFile({ filters: [{ name: type === 'pdf' ? 'PDF' : 'PowerPoint', extensions: exts }] });
     if (dataUrl) {
-      const newSource: Source = { id: `${type}-${Date.now()}`, name: type.toUpperCase(), type, data: dataUrl, visible: true, x: 0, y: 0, width: 1920, height: 1080 };
+      const newSource: Source = { 
+        id: `${type}-${Date.now()}`, 
+        name: type.toUpperCase(), 
+        type, 
+        data: dataUrl, 
+        visible: true, x: 0, y: 0, width: 1920, height: 1080,
+        page: 1,
+        totalPages: 1
+      };
       const updated = [...previewSources, newSource];
       setPreviewSources(updated);
       setSelectedSourceId(newSource.id);
@@ -335,14 +347,23 @@ const App: React.FC = () => {
   const toggleSourceFullscreen = (id: string) => {
     const source = previewSources.find(s => s.id === id);
     if (!source) return;
-    if (source.width === 1920) updateSourceTransform(id, { x: 1400, y: 700, width: 480, height: 270 });
-    else updateSourceTransform(id, { x: 0, y: 0, width: 1920, height: 1080 });
+    if (source.width === 1920) {
+      updateSourceTransform(id, { x: 1400, y: 700, width: 480, height: 270, fit: 'cover' });
+    } else {
+      updateSourceTransform(id, { x: 0, y: 0, width: 1920, height: 1080, fit: 'contain' });
+    }
   };
 
   const updateOverlay = (id: string, updates: Partial<Overlay>) => {
     const updated = previewOverlays.map(o => o.id === id ? { ...o, ...updates } : o);
     setPreviewOverlays(updated);
     setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, overlays: updated } : s));
+  };
+
+  const handleSourceMetadata = (id: string, metadata: { totalPages?: number }) => {
+    const updated = previewSources.map(s => s.id === id ? { ...s, ...metadata } : s);
+    setPreviewSources(updated);
+    setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
   };
 
   const toggleVisibility = (id: string) => {
@@ -534,8 +555,7 @@ const App: React.FC = () => {
                     <button className="asset-btn" title="Add Audio" onClick={addAudioSource}><Volume2 size={18} /><span>Audio</span></button>
                     <button className="asset-btn" title="Link Video" onClick={linkVideoSource}><Globe size={18} /><span>Link</span></button>
                     <button className="asset-btn" title="Add Text" onClick={addTextSource}><Type size={18} /><span>Text</span></button>
-                    <button className="asset-btn" title="Add PDF" onClick={() => addFileSource('pdf')}><FileText size={18} /><span>PDF</span></button>
-                    <button className="asset-btn" title="Add PowerPoint" onClick={() => addFileSource('slides')}><Presentation size={18} /><span>Slides</span></button>
+                    <button className="asset-btn" title="Add PDF / Slides" onClick={() => addFileSource('pdf')}><Presentation size={18} /><span>Slides</span></button>
                     <button className="asset-btn" title="Add Lower Third" onClick={() => addOverlay('lower-third')}><Layers size={18} /><span>Lower</span></button>
                     <button className="asset-btn" title="Add Ticker" onClick={() => addOverlay('ticker')}><Zap size={18} /><span>Ticker</span></button>
                     <button className="asset-btn" title="Add Logo" onClick={async () => {
@@ -561,6 +581,7 @@ const App: React.FC = () => {
                             selectedSourceId={selectedSourceId}
                             onSourceUpdate={updateSourceTransform}
                             onSourceSelect={setSelectedSourceId}
+                            onSourceMetadata={handleSourceMetadata}
                             onPlaybackUpdate={(id, current, duration) => setPlaybackStatus({ id, currentTime: current, duration })}
                             seekRequest={seekRequest}
                         />
@@ -676,6 +697,28 @@ const App: React.FC = () => {
                                 setPreviewSources(updated);
                                 setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
                             }} /></div>
+
+                            {(selectedSource.type === 'pdf' || selectedSource.type === 'slides') && (
+                                <div className="pdf-controls-wrapper" style={{ margin: '8px 0', padding: '12px', background: 'var(--bg-1)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                                    <div className="column-header-with-controls" style={{ marginBottom: '8px' }}>
+                                        <label className="menu-label" style={{ margin: 0 }}>Slide Navigation</label>
+                                        <button className="icon-btn xs" title="View All Slides" onClick={() => { setPdfGridSourceId(selectedSource.id); setIsPdfGridOpen(true); }}><Grid size={14} /></button>
+                                    </div>
+                                    <div className="action-row" style={{ marginTop: '4px', gap: '4px' }}>
+                                        <button className="btn-mini secondary" onClick={() => {
+                                            const p = Math.max(1, (selectedSource.page || 1) - 1);
+                                            handleSourceMetadata(selectedSource.id, { page: p });
+                                        }}><ChevronLeft size={14} /></button>
+                                        <div className="flex-1" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '800', color: 'var(--accent)' }}>
+                                            {selectedSource.page || 1} <span style={{ opacity: 0.5, margin: '0 4px' }}>/</span> {selectedSource.totalPages || '?'}
+                                        </div>
+                                        <button className="btn-mini secondary" onClick={() => {
+                                            const p = Math.min(selectedSource.totalPages || 999, (selectedSource.page || 1) + 1);
+                                            handleSourceMetadata(selectedSource.id, { page: p });
+                                        }}><ChevronRight size={14} /></button>
+                                    </div>
+                                </div>
+                            )}
                             
                             {selectedSource.type === 'text' && (
                                 <>
@@ -777,6 +820,8 @@ const App: React.FC = () => {
                                             </div>
                                         </div>
                                     )}
+
+
                                 </div>
                             )}
 
@@ -934,8 +979,62 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
+      {isPdfGridOpen && pdfGridSourceId && (
+        <PdfGridModal 
+            source={previewSources.find(s => s.id === pdfGridSourceId)!}
+            onClose={() => setIsPdfGridOpen(false)}
+            onSelect={(page) => {
+                handleSourceMetadata(pdfGridSourceId, { page });
+                setIsPdfGridOpen(false);
+            }}
+        />
+      )}
     </div>
   );
+}
+
+const PdfGridModal = ({ source, onClose, onSelect }: { source: Source, onClose: () => void, onSelect: (page: number) => void }) => {
+    const [thumbs, setThumbs] = useState<string[]>([]);
+
+    useEffect(() => {
+        const loadThumbs = async () => {
+            if (!(window as any).pdfjsLib) return;
+            const pdfjsLib = (window as any).pdfjsLib;
+            const pdf = await pdfjsLib.getDocument(source.data).promise;
+            const newThumbs = [];
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const viewport = page.getViewport({ scale: 0.3 });
+                const canvas = document.createElement('canvas');
+                canvas.width = viewport.width; canvas.height = viewport.height;
+                await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
+                newThumbs.push(canvas.toDataURL());
+            }
+            setThumbs(newThumbs);
+        };
+        loadThumbs();
+    }, [source]);
+
+    return (
+        <div className="modal-overlay">
+            <div className="modal-box" style={{ maxWidth: '900px' }}>
+                <div className="modal-head">
+                    <h2>Select Slide</h2>
+                    <button className="icon-btn" onClick={onClose}><X size={20} /></button>
+                </div>
+                <div className="modal-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
+                    {thumbs.length > 0 ? thumbs.map((t, i) => (
+                        <div key={i} className={`grid-item ${source.page === i + 1 ? 'active' : ''}`} onClick={() => onSelect(i + 1)} style={{ border: source.page === i + 1 ? '2px solid var(--accent)' : '' }}>
+                            <img src={t} alt={`Page ${i + 1}`} />
+                            <div style={{ textAlign: 'center', fontSize: '10px', marginTop: '4px' }}>Page {i + 1}</div>
+                        </div>
+                    )) : (
+                        <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '40px', opacity: 0.5 }}>Generating slide previews...</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 };
 
 export default App;

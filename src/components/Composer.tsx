@@ -13,6 +13,8 @@ interface Source {
   playing?: boolean;
   volume?: number;
   fit?: 'cover' | 'contain' | 'fill';
+  page?: number;
+  totalPages?: number;
   style?: {
     fontSize: number;
     fontFamily: string;
@@ -29,7 +31,7 @@ interface Overlay {
   title: string;
   subtitle: string;
   visible: boolean;
-  data?: string; // For Logo
+  data?: string;
   x?: number;
   y?: number;
   width?: number;
@@ -50,6 +52,7 @@ interface ComposerProps {
   selectedSourceId?: string | null;
   onSourceUpdate?: (id: string, updates: Partial<Source>) => void;
   onSourceSelect?: (id: string | null) => void;
+  onSourceMetadata?: (id: string, metadata: { totalPages?: number }) => void;
   onStreamCreated?: (stream: MediaStream) => void;
   onPlaybackUpdate?: (id: string, currentTime: number, duration: number) => void;
   seekRequest?: { id: string, time: number, timestamp: number } | null;
@@ -62,6 +65,7 @@ const Composer: React.FC<ComposerProps> = ({
   selectedSourceId, 
   onSourceUpdate, 
   onSourceSelect,
+  onSourceMetadata,
   onStreamCreated,
   onPlaybackUpdate,
   seekRequest
@@ -70,6 +74,7 @@ const Composer: React.FC<ComposerProps> = ({
   const videoElements = useRef<Record<string, HTMLVideoElement>>({});
   const audioElements = useRef<Record<string, HTMLAudioElement>>({});
   const imageElements = useRef<Record<string, HTMLImageElement>>({});
+  const pdfCanvases = useRef<Record<string, HTMLCanvasElement>>({});
   const streams = useRef<Record<string, MediaStream>>({});
   const animationFrameRef = useRef<number>();
   const tickerX = useRef(1920);
@@ -82,7 +87,6 @@ const Composer: React.FC<ComposerProps> = ({
   const dragStartPos = useRef({ x: 0, y: 0 });
   const initialSourcePos = useRef({ x: 0, y: 0 });
 
-  // Transition state
   const lastCanvasSnapshot = useRef<HTMLCanvasElement | null>(null);
   const transitionProgress = useRef(0);
   const isTransitioning = useRef(false);
@@ -93,6 +97,40 @@ const Composer: React.FC<ComposerProps> = ({
         audioDestination.current = audioContext.current.createMediaStreamDestination();
     }
 
+    const loadPdf = async (source: Source) => {
+        const pageNum = source.page || 1;
+        const cacheKey = `${source.id}-${pageNum}`;
+        if (!source.data || pdfCanvases.current[cacheKey]) return;
+        try {
+            if (!(window as any).pdfjsLib) {
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+                document.head.appendChild(script);
+                await new Promise(resolve => script.onload = resolve);
+            }
+            const pdfjsLib = (window as any).pdfjsLib;
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            
+            const loadingTask = pdfjsLib.getDocument(source.data);
+            const pdf = await loadingTask.promise;
+            
+            if (source.totalPages !== pdf.numPages) {
+                onSourceMetadata?.(source.id, { totalPages: pdf.numPages });
+            }
+
+            if (pageNum > pdf.numPages) return;
+            
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 2 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            const context = canvas.getContext('2d');
+            await page.render({ canvasContext: context!, viewport }).promise;
+            pdfCanvases.current[cacheKey] = canvas;
+        } catch (e) { console.error('PDF Load Error:', e); }
+    };
+
     const updateSources = async () => {
       if (canvasRef.current && !isTransitioning.current) {
           const snapshot = document.createElement('canvas');
@@ -101,23 +139,13 @@ const Composer: React.FC<ComposerProps> = ({
           if (sCtx) { sCtx.drawImage(canvasRef.current, 0, 0); lastCanvasSnapshot.current = snapshot; transitionProgress.current = 1.0; isTransitioning.current = true; }
       }
 
-      // Cleanup
-      for (const id in streams.current) {
-        if (!sources.find(s => s.id === id) && !overlays.find(o => o.id === id)) {
-          streams.current[id].getTracks().forEach(t => t.stop());
-          delete streams.current[id];
-          delete videoElements.current[id];
-          if (audioNodes.current[id]) { 
-              audioNodes.current[id].gain?.disconnect(); 
-              audioNodes.current[id].source?.disconnect(); 
-              delete audioNodes.current[id]; 
-          }
-        }
-      }
-
-      // Initialize
       for (const source of sources) {
         if (!source.visible) continue;
+        
+        if ((source.type === 'pdf' || source.type === 'slides') && source.data) {
+            loadPdf(source);
+        }
+
         if ((source.type === 'screen' || source.type === 'window' || source.type === 'camera') && !streams.current[source.id]) {
           try {
             let stream: MediaStream;
@@ -149,7 +177,7 @@ const Composer: React.FC<ComposerProps> = ({
           } catch (e) { console.error('Source error:', e); }
         }
 
-        if ((source.type === 'image' || source.type === 'pdf' || source.type === 'slides') && source.data && !imageElements.current[source.id]) {
+        if (source.type === 'image' && source.data && !imageElements.current[source.id]) {
           const img = new Image(); img.src = source.data; img.crossOrigin = 'anonymous';
           imageElements.current[source.id] = img;
         }
@@ -167,86 +195,56 @@ const Composer: React.FC<ComposerProps> = ({
             }
         }
       }
-
-      for (const overlay of overlays) {
-        if (overlay.type === 'logo' && overlay.data && !imageElements.current[overlay.id]) {
-          const img = new Image(); img.src = overlay.data; img.crossOrigin = 'anonymous';
-          imageElements.current[overlay.id] = img;
-        }
-      }
     };
     updateSources();
   }, [sources, overlays, interactive]);
-
-  useEffect(() => {
-      sources.forEach(source => {
-          if (source.type === 'video' || source.type === 'audio' || source.type === 'camera') {
-              const el = source.type === 'video' ? videoElements.current[source.id] : audioElements.current[source.id];
-              if (el) {
-                  if (source.playing === false) el.pause();
-                  else el.play().catch(() => {});
-              }
-              const node = audioNodes.current[source.id];
-              if (node && node.gain && node.gain.gain) { node.gain.gain.value = source.volume ?? 1.0; }
-          }
-      });
-  }, [sources]);
-
-  useEffect(() => {
-    if (seekRequest) {
-      const el = videoElements.current[seekRequest.id] || audioElements.current[seekRequest.id];
-      if (el) {
-          if (el.readyState >= 1) { el.currentTime = seekRequest.time; } 
-          else { el.addEventListener('loadedmetadata', () => { el.currentTime = seekRequest.time; }, { once: true }); }
-      }
-    }
-  }, [seekRequest]);
-
-  useEffect(() => {
-    if (!interactive || !onPlaybackUpdate) return;
-    const interval = setInterval(() => {
-      if (selectedSourceId) {
-        const el = videoElements.current[selectedSourceId] || audioElements.current[selectedSourceId];
-        if (el && !isNaN(el.duration)) { onPlaybackUpdate(selectedSourceId, el.currentTime, el.duration); }
-      }
-    }, 500);
-    return () => clearInterval(interval);
-  }, [selectedSourceId, interactive, onPlaybackUpdate]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!interactive || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const scaleX = 1920 / rect.width;
     const scaleY = 1080 / rect.height;
-    const mouseX = (e.clientX - rect.left) * scaleX;
-    const mouseY = (e.clientY - rect.top) * scaleY;
-    const reversed = [...sources].reverse();
-    const hit = reversed.find(s => s.visible && mouseX >= s.x && mouseX <= s.x + s.width && mouseY >= s.y && mouseY <= s.y + s.height);
-    if (hit) { onSourceSelect?.(hit.id); isDragging.current = true; dragStartPos.current = { x: mouseX, y: mouseY }; initialSourcePos.current = { x: hit.x, y: hit.y }; } 
-    else { onSourceSelect?.(null); }
-  };
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!interactive || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = 1920 / rect.width;
-    const scaleY = 1080 / rect.height;
-    const mouseX = (e.clientX - rect.left) * scaleX;
-    const mouseY = (e.clientY - rect.top) * scaleY;
-    if (isDragging.current && selectedSourceId && onSourceUpdate) {
-        const dx = mouseX - dragStartPos.current.x; const dy = mouseY - dragStartPos.current.y;
-        onSourceUpdate(selectedSourceId, { x: Math.round(initialSourcePos.current.x + dx), y: Math.round(initialSourcePos.current.y + dy) });
-    } else {
-        const reversed = [...sources].reverse();
-        const hover = reversed.find(s => s.visible && mouseX >= s.x && mouseX <= s.x + s.width && mouseY >= s.y && mouseY <= s.y + s.height);
-        canvasRef.current.style.cursor = hover ? 'move' : 'default';
+    let foundId = null;
+    for (let i = sources.length - 1; i >= 0; i--) {
+        const s = sources[i];
+        if (x >= s.x && x <= s.x + s.width && y >= s.y && y <= s.y + s.height) {
+            foundId = s.id; break;
+        }
+    }
+    
+    onSourceSelect?.(foundId);
+    if (foundId) {
+        const s = sources.find(src => src.id === foundId)!;
+        isDragging.current = true;
+        dragStartPos.current = { x, y };
+        initialSourcePos.current = { x: s.x, y: s.y };
     }
   };
 
-  const drawSource = (source: Source, element: HTMLVideoElement | HTMLImageElement, ctx: CanvasRenderingContext2D) => {
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging.current || !selectedSourceId || !onSourceUpdate || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const scaleX = 1920 / rect.width;
+    const scaleY = 1080 / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+
+    const dx = x - dragStartPos.current.x;
+    const dy = y - dragStartPos.current.y;
+    onSourceUpdate(selectedSourceId, { x: Math.round(initialSourcePos.current.x + dx), y: Math.round(initialSourcePos.current.y + dy) });
+  };
+
+  const drawSource = (source: Source, element: HTMLVideoElement | HTMLImageElement | HTMLCanvasElement, ctx: CanvasRenderingContext2D) => {
     const fit = source.fit || 'fill'; const targetX = source.x; const targetY = source.y; const targetW = source.width; const targetH = source.height;
+    if (element instanceof HTMLImageElement && (!element.complete || element.naturalWidth === 0)) return;
     let sW = 0, sH = 0;
-    if (element instanceof HTMLVideoElement) { sW = element.videoWidth; sH = element.videoHeight; } else { sW = element.width; sH = element.height; }
+    if (element instanceof HTMLVideoElement) { sW = element.videoWidth; sH = element.videoHeight; } 
+    else if (element instanceof HTMLCanvasElement) { sW = element.width; sH = element.height; }
+    else { sW = (element as HTMLImageElement).naturalWidth; sH = (element as HTMLImageElement).naturalHeight; }
+    
     if (fit === 'fill') { ctx.drawImage(element, targetX, targetY, targetW, targetH); } 
     else if (fit === 'cover') {
         const tA = targetW / targetH; const sA = sW / sH;
@@ -264,12 +262,6 @@ const Composer: React.FC<ComposerProps> = ({
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
     const ctx = canvas.getContext('2d'); if (!ctx) return;
-    if (onStreamCreated) {
-        const vS = canvas.captureStream(60); const tracks = [...vS.getVideoTracks()];
-        if (audioDestination.current) tracks.push(...audioDestination.current.stream.getAudioTracks());
-        onStreamCreated(new MediaStream(tracks));
-    }
-
     const render = () => {
       ctx.fillStyle = 'black'; ctx.fillRect(0, 0, canvas.width, canvas.height);
       sources.forEach(source => {
@@ -279,12 +271,15 @@ const Composer: React.FC<ComposerProps> = ({
             ctx.fillStyle = s.color; ctx.textAlign = s.textAlign; ctx.font = `${s.italic ? 'italic ' : ''}${s.bold ? 'bold ' : ''}${s.fontSize}px ${s.fontFamily}, sans-serif`;
             const lines = (source.data || '').split('\n');
             lines.forEach((l, i) => { const tX = s.textAlign === 'center' ? source.x + source.width / 2 : (s.textAlign === 'right' ? source.x + source.width : source.x); ctx.fillText(l, tX, source.y + s.fontSize + (i * s.fontSize * 1.2)); });
-        } else if (source.type === 'image' || source.type === 'pdf' || source.type === 'slides') {
+        } else if (source.type === 'pdf' || source.type === 'slides') {
+          const pdfCanvas = pdfCanvases.current[`${source.id}-${source.page || 1}`];
+          if (pdfCanvas) drawSource(source, pdfCanvas, ctx);
+          else { ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fillRect(source.x, source.y, source.width, source.height); ctx.fillStyle = 'white'; ctx.font = '24px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Loading Slide...', source.x + source.width / 2, source.y + source.height / 2); }
+        } else if (source.type === 'image') {
           const img = imageElements.current[source.id]; if (img && img.complete) drawSource(source, img, ctx);
         } else if (source.type !== 'audio') {
           const video = videoElements.current[source.id];
           if (video && video.readyState >= 2) drawSource(source, video, ctx);
-          else if (video && video.error) { ctx.fillStyle = 'rgba(255, 0, 0, 0.2)'; ctx.fillRect(source.x, source.y, source.width, source.height); ctx.fillStyle = 'white'; ctx.font = '24px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Format Not Supported', source.x + source.width / 2, source.y + source.height / 2); }
         }
         if (interactive && source.id === selectedSourceId) { ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.strokeRect(source.x, source.y, source.width, source.height); ctx.setLineDash([]); }
       });
