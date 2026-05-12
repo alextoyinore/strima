@@ -32,11 +32,17 @@ interface Overlay {
   title: string;
   subtitle: string;
   visible: boolean;
+  data?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
   speed?: number;
   style?: {
     fontSize: number;
     color: string;
     backgroundColor: string;
+    accentColor?: string;
   };
 }
 
@@ -351,8 +357,20 @@ const App: React.FC = () => {
     setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, overlays: updated } : s));
   };
 
-  const addOverlay = (type: 'lower-third' | 'ticker') => {
-    const newOverlay: Overlay = { id: `overlay-${Date.now()}`, type, title: 'Title', subtitle: 'Subtitle', visible: true };
+  const addOverlay = (type: 'lower-third' | 'ticker' | 'logo', data?: string) => {
+    const newOverlay: Overlay = {
+      id: `ovl-${Date.now()}`,
+      type,
+      title: type === 'logo' ? 'Branding Logo' : (type === 'ticker' ? 'Scroll Text' : 'New Lower Third'),
+      subtitle: type === 'lower-third' ? 'Presenter Title' : '',
+      visible: true,
+      data,
+      x: type === 'logo' ? 1700 : undefined,
+      y: type === 'logo' ? 50 : undefined,
+      width: type === 'logo' ? 150 : undefined,
+      height: type === 'logo' ? 150 : undefined,
+      style: type === 'lower-third' ? { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1', accentColor: '#0f172a' } : undefined
+    };
     const updated = [...previewOverlays, newOverlay];
     setPreviewOverlays(updated);
     setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, overlays: updated } : s));
@@ -520,6 +538,10 @@ const App: React.FC = () => {
                     <button className="asset-btn" title="Add PowerPoint" onClick={() => addFileSource('slides')}><Presentation size={18} /><span>Slides</span></button>
                     <button className="asset-btn" title="Add Lower Third" onClick={() => addOverlay('lower-third')}><Layers size={18} /><span>Lower</span></button>
                     <button className="asset-btn" title="Add Ticker" onClick={() => addOverlay('ticker')}><Zap size={18} /><span>Ticker</span></button>
+                    <button className="asset-btn" title="Add Logo" onClick={async () => {
+                        const path = await (window as any).electronAPI.selectFile(['png', 'jpg', 'jpeg', 'svg', 'webp']);
+                        if (path) addOverlay('logo', path);
+                    }}><ImageIcon size={18} /><span>Logo</span></button>
                 </div>
             </aside>
 
@@ -781,11 +803,82 @@ const App: React.FC = () => {
                             <button className="btn-ghost" style={{ marginTop: '12px' }} onClick={() => setSelectedSourceId(null)}>Deselect</button>
                         </div>
                     ) : selectedOverlay ? (
-                        <div className="editor-grid single">
-                            <div className="editor-field"><label>Text</label><input type="text" value={selectedOverlay.title} onChange={(e) => updateOverlay(selectedOverlay.id, { title: e.target.value })} /></div>
-                            {selectedOverlay.type === 'lower-third' && (
-                                <div className="editor-field"><label>Sub</label><input type="text" value={selectedOverlay.subtitle} onChange={(e) => updateOverlay(selectedOverlay.id, { subtitle: e.target.value })} /></div>
-                            )}
+                        <div className="properties-panel-content">
+                            <div className="column-header-with-controls">
+                                <span className="column-title">{selectedOverlay.type.toUpperCase()}</span>
+                            </div>
+                            <div className="column-body">
+                                <div className="editor-grid single">
+                                    <div className="editor-field"><label>Text</label><input type="text" value={selectedOverlay.title} onChange={(e) => updateOverlay(selectedOverlay.id, { title: e.target.value })} /></div>
+                                    {selectedOverlay.type === 'lower-third' && (
+                                        <div className="editor-field"><label>Subtitle</label><input type="text" value={selectedOverlay.subtitle} onChange={(e) => updateOverlay(selectedOverlay.id, { subtitle: e.target.value })} /></div>
+                                    )}
+                                </div>
+
+                                {selectedOverlay.type === 'lower-third' && (
+                                    <>
+                                        <div className="editor-grid" style={{ marginTop: '12px' }}>
+                                            <div className="editor-field">
+                                                <label>Main Color</label>
+                                                <input type="color" value={selectedOverlay.style?.backgroundColor || '#6366f1'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), backgroundColor: e.target.value } })} />
+                                            </div>
+                                            <div className="editor-field">
+                                                <label>Accent</label>
+                                                <input type="color" value={selectedOverlay.style?.accentColor || '#0f172a'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), accentColor: e.target.value } })} />
+                                            </div>
+                                        </div>
+                                        <div className="editor-field" style={{ marginTop: '12px' }}>
+                                            <label>Font Size</label>
+                                            <input type="number" value={selectedOverlay.style?.fontSize || 44} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), fontSize: parseInt(e.target.value) || 44 } })} />
+                                        </div>
+                                    </>
+                                )}
+
+                                {selectedOverlay.type === 'logo' && (
+                                    <div className="logo-controls" style={{ marginTop: '12px' }}>
+                                        <div className="editor-grid">
+                                            <div className="editor-field">
+                                                <label>X Position</label>
+                                                <input type="number" value={selectedOverlay.x || 1700} onChange={(e) => updateOverlay(selectedOverlay.id, { x: parseInt(e.target.value) || 0 })} />
+                                            </div>
+                                            <div className="editor-field">
+                                                <label>Y Position</label>
+                                                <input type="number" value={selectedOverlay.y || 50} onChange={(e) => updateOverlay(selectedOverlay.id, { y: parseInt(e.target.value) || 0 })} />
+                                            </div>
+                                        </div>
+                                        <div className="editor-field" style={{ marginTop: '12px' }}>
+                                            <label>Logo Size</label>
+                                            <input type="range" min="50" max="800" value={selectedOverlay.width || 150} onChange={(e) => updateOverlay(selectedOverlay.id, { width: parseInt(e.target.value), height: parseInt(e.target.value) })} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {selectedOverlay.type === 'ticker' && (
+                                    <div className="ticker-controls" style={{ marginTop: '12px' }}>
+                                        <div className="editor-field">
+                                            <label>Scroll Speed</label>
+                                            <input 
+                                                type="range" 
+                                                className="seeker-bar"
+                                                min="1" 
+                                                max="20" 
+                                                value={selectedOverlay.speed || 3} 
+                                                onChange={(e) => updateOverlay(selectedOverlay.id, { speed: parseInt(e.target.value) })}
+                                            />
+                                        </div>
+                                        <div className="editor-grid" style={{ marginTop: '12px' }}>
+                                            <div className="editor-field">
+                                                <label>Text Color</label>
+                                                <input type="color" value={selectedOverlay.style?.color || '#ffffff'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 24, color: '#ffffff', backgroundColor: 'rgba(15, 23, 42, 0.95)' }), color: e.target.value } })} />
+                                            </div>
+                                            <div className="editor-field">
+                                                <label>Background</label>
+                                                <input type="color" value={selectedOverlay.style?.backgroundColor || '#0f172a'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 24, color: '#ffffff', backgroundColor: 'rgba(15, 23, 42, 0.95)' }), backgroundColor: e.target.value } })} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     ) : (
                         <div className="empty-state">
