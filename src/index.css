@@ -574,3 +574,35 @@ body {
 .accent-dot.crimson { background-color: #991b1b; }
 .accent-dot.electric { background-color: #1e40af; }
 .accent-dot.active { border-color: white; transform: scale(1.1); box-shadow: 0 0 8px rgba(255,255,255,0.4); }
+
+/* Seeker / Range Input Styling */
+.seeker-bar {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--bg-3);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+  margin: 8px 0;
+}
+
+.seeker-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  background: var(--tx-1);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.2s, background-color 0.2s;
+  border: 2px solid var(--accent);
+}
+
+.seeker-bar::-webkit-slider-thumb:hover {
+  transform: scale(1.3);
+  background-color: var(--tx-1);
+}
+
+.seeker-bar:focus {
+  background: var(--border);
+}

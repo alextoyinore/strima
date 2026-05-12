@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic } from 'lucide-react';
+import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward } from 'lucide-react';
 import Composer from './components/Composer';
 
 interface Source {
   id: string;
   name: string;
-  type: 'screen' | 'window' | 'camera' | 'image' | 'video' | 'text' | 'pdf' | 'slides';
+  type: 'screen' | 'window' | 'camera' | 'image' | 'video' | 'text' | 'pdf' | 'slides' | 'audio';
   thumbnail?: string;
   data?: string;
   visible: boolean;
@@ -14,6 +14,7 @@ interface Source {
   width: number;
   height: number;
   playing?: boolean;
+  volume?: number;
   style?: {
     fontSize: number;
     fontFamily: string;
@@ -91,6 +92,22 @@ const App: React.FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const composerStreamRef = useRef<MediaStream | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
+
+  const [playbackStatus, setPlaybackStatus] = useState<{ id: string, currentTime: number, duration: number } | null>(null);
+  const [seekRequest, setSeekRequest] = useState<{ id: string, time: number, timestamp: number } | null>(null);
+
+  const formatTime = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    return `${h > 0 ? h + ':' : ''}${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const skip = (seconds: number) => {
+    if (playbackStatus && selectedSourceId === playbackStatus.id) {
+      setSeekRequest({ id: playbackStatus.id, time: Math.max(0, Math.min(playbackStatus.duration, playbackStatus.currentTime + seconds)), timestamp: Date.now() });
+    }
+  };
 
   useEffect(() => {
     const loadData = async () => {
@@ -231,7 +248,7 @@ const App: React.FC = () => {
   };
 
   const addVideoSource = async () => {
-    const dataUrl = await window.electron.selectFile({ filters: [{ name: 'Videos', extensions: ['mp4', 'webm', 'mkv', 'avi'] }] });
+    const dataUrl = await window.electron.selectFile({ filters: [{ name: 'Videos', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ts'] }] });
     if (dataUrl) {
       const newSource: Source = { id: `vid-${Date.now()}`, name: 'Video', type: 'video', data: dataUrl, visible: true, x: 0, y: 0, width: 1920, height: 1080, playing: true };
       const updated = [...previewSources, newSource];
@@ -261,6 +278,17 @@ const App: React.FC = () => {
     const dataUrl = await window.electron.selectFile({ filters: [{ name: type === 'pdf' ? 'PDF' : 'PowerPoint', extensions: exts }] });
     if (dataUrl) {
       const newSource: Source = { id: `${type}-${Date.now()}`, name: type.toUpperCase(), type, data: dataUrl, visible: true, x: 0, y: 0, width: 1920, height: 1080 };
+      const updated = [...previewSources, newSource];
+      setPreviewSources(updated);
+      setSelectedSourceId(newSource.id);
+      setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
+    }
+  };
+
+  const addAudioSource = async () => {
+    const dataUrl = await window.electron.selectFile({ filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'aac'] }] });
+    if (dataUrl) {
+      const newSource: Source = { id: `aud-${Date.now()}`, name: 'Audio', type: 'audio', data: dataUrl, visible: true, x: 0, y: 0, width: 0, height: 0, playing: true };
       const updated = [...previewSources, newSource];
       setPreviewSources(updated);
       setSelectedSourceId(newSource.id);
@@ -388,6 +416,24 @@ const App: React.FC = () => {
 
   const stopRecording = async () => { setIsRecording(false); if (mediaRecorderRef.current) { mediaRecorderRef.current.stop(); mediaRecorderRef.current = null; } await window.electron.stopFFmpeg(); };
 
+  const themeMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (themeMenuRef.current && !themeMenuRef.current.contains(event.target as Node)) {
+        setIsThemeMenuOpen(false);
+      }
+    };
+    if (isThemeMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isThemeMenuOpen]);
+
   const selectedSource = previewSources.find(s => s.id === selectedSourceId);
   const selectedOverlay = previewOverlays.find(o => o.id === selectedOverlayId);
 
@@ -422,7 +468,7 @@ const App: React.FC = () => {
             </div>
         </div>
         <div className="header-right">
-          <div className="theme-selector-container">
+          <div className="theme-selector-container" ref={themeMenuRef}>
             <button className="icon-btn" onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}>
               {resolvedTheme === 'dark' ? <Moon size={20} /> : <Sun size={20} />}
             </button>
@@ -460,6 +506,7 @@ const App: React.FC = () => {
                     <button className="asset-btn" title="Screen Share" onClick={openSelector}><Monitor size={18} /><span>Screen</span></button>
                     <button className="asset-btn" title="Add Image" onClick={addImageSource}><ImageIcon size={18} /><span>Image</span></button>
                     <button className="asset-btn" title="Add Video" onClick={addVideoSource}><Film size={18} /><span>Video</span></button>
+                    <button className="asset-btn" title="Add Audio" onClick={addAudioSource}><Volume2 size={18} /><span>Audio</span></button>
                     <button className="asset-btn" title="Link Video" onClick={linkVideoSource}><Globe size={18} /><span>Link</span></button>
                     <button className="asset-btn" title="Add Text" onClick={addTextSource}><Type size={18} /><span>Text</span></button>
                     <button className="asset-btn" title="Add PDF" onClick={() => addFileSource('pdf')}><FileText size={18} /><span>PDF</span></button>
@@ -485,6 +532,8 @@ const App: React.FC = () => {
                             selectedSourceId={selectedSourceId}
                             onSourceUpdate={updateSourceTransform}
                             onSourceSelect={setSelectedSourceId}
+                            onPlaybackUpdate={(id, current, duration) => setPlaybackStatus({ id, currentTime: current, duration })}
+                            seekRequest={seekRequest}
                         />
                     </div>
                 </div>
@@ -535,6 +584,7 @@ const App: React.FC = () => {
                             <div className="row-meta">
                                 {source.type === 'camera' ? <Camera size={14} /> : 
                                  source.type === 'video' ? <Film size={14} /> : 
+                                 source.type === 'audio' ? <Volume2 size={14} /> : 
                                  source.type === 'text' ? <Type size={14} /> :
                                  source.type === 'pdf' ? <FileText size={14} /> :
                                  source.type === 'slides' ? <Presentation size={14} /> :
@@ -631,9 +681,9 @@ const App: React.FC = () => {
                                 </>
                             )}
 
-                            {selectedSource.type === 'video' && (
+                            {(selectedSource.type === 'video' || selectedSource.type === 'audio') && (
                                 <div className="video-playback-controls">
-                                    <label className="menu-label">Playback</label>
+                                    <label className="menu-label">{selectedSource.type === 'video' ? 'Video' : 'Audio'} Playback</label>
                                     <div className="action-row" style={{ marginTop: '4px' }}>
                                         <button className="btn-mini primary flex-1" onClick={() => {
                                             const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, playing: !s.playing } : s);
@@ -648,6 +698,56 @@ const App: React.FC = () => {
                                             setPreviewSources(updated);
                                         }} title="Restart"><RotateCcw size={14} /></button>
                                     </div>
+
+                                    {playbackStatus && playbackStatus.id === selectedSource.id && (
+                                        <div className="seeker-widget" style={{ marginTop: '12px' }}>
+                                            <div className="time-info" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '10px', marginBottom: '4px', opacity: 0.7 }}>
+                                                <span>{formatTime(playbackStatus.currentTime)}</span>
+                                                <span>{formatTime(playbackStatus.duration)}</span>
+                                            </div>
+                                            <input 
+                                                type="range" 
+                                                className="seeker-bar"
+                                                min="0" 
+                                                max={playbackStatus.duration} 
+                                                step="0.1"
+                                                value={playbackStatus.currentTime} 
+                                                onChange={(e) => setSeekRequest({ id: selectedSource.id, time: parseFloat(e.target.value), timestamp: Date.now() })}
+                                            />
+                                            <div className="skip-controls" style={{ display: 'flex', gap: '4px', marginTop: '8px' }}>
+                                                <button className="btn-mini secondary flex-1" onClick={() => skip(-10)} title="Skip Backward 10s">
+                                                    <SkipBack size={14} />
+                                                    <span>-10s</span>
+                                                </button>
+                                                <button className="btn-mini secondary flex-1" onClick={() => skip(10)} title="Skip Forward 10s">
+                                                    <span>+10s</span>
+                                                    <SkipForward size={14} />
+                                                </button>
+                                            </div>
+
+                                            <div className="volume-control" style={{ marginTop: '16px' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                                    <Volume2 size={14} />
+                                                    <label className="menu-label" style={{ marginBottom: 0 }}>Volume</label>
+                                                    <span style={{ marginLeft: 'auto', fontSize: '10px', opacity: 0.7 }}>{Math.round((selectedSource.volume ?? 1) * 100)}%</span>
+                                                </div>
+                                                <input 
+                                                    type="range" 
+                                                    className="seeker-bar"
+                                                    min="0" 
+                                                    max="1" 
+                                                    step="0.01"
+                                                    value={selectedSource.volume ?? 1} 
+                                                    onChange={(e) => {
+                                                        const val = parseFloat(e.target.value);
+                                                        const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, volume: val } : s);
+                                                        setPreviewSources(updated);
+                                                        setScenes(scenes.map(sc => sc.id === activeSceneId ? { ...sc, sources: updated } : sc));
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

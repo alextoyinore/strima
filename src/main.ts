@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, dialog, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, desktopCapturer, dialog, protocol, net } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import './main/ffmpeg-manager';
 
@@ -10,7 +11,7 @@ if (started) {
 
 // Register custom protocol for local media
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'media', privileges: { bypassCSP: true, stream: true, secure: true, supportFetchAPI: true } }
+  { scheme: 'media', privileges: { bypassCSP: true, stream: true, secure: true, supportFetchAPI: true, corsEnabled: true } }
 ]);
 
 const createWindow = () => {
@@ -76,11 +77,37 @@ ipcMain.handle('load-config', async () => {
 
 app.whenReady().then(() => {
   // Handle media:// protocol
-  protocol.handle('media', (request) => {
+  protocol.handle('media', async (request) => {
     const filePath = request.url.replace('media://get-file/', '');
-    // Decode the path in case it has special characters
     const decodedPath = decodeURIComponent(filePath);
-    return Response.redirect(`file://${decodedPath}`);
+    try {
+      console.log(`[Media Protocol] Request: ${request.method} ${decodedPath}`);
+      console.log(`[Media Protocol] Range Header: ${request.headers.get('Range')}`);
+      
+      const response = await net.fetch(pathToFileURL(decodedPath).href, {
+        method: request.method,
+        headers: request.headers
+      });
+
+      console.log(`[Media Protocol] Response Status: ${response.status}`);
+      console.log(`[Media Protocol] Response Range: ${response.headers.get('Content-Range')}`);
+
+      const headers = new Headers(response.headers);
+      headers.set('Access-Control-Allow-Origin', '*');
+      headers.set('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      headers.set('Access-Control-Allow-Headers', 'Range');
+      headers.set('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges');
+
+      // Return a proper Response object with cloned body
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers
+      });
+    } catch (e) {
+      console.error('[Media Protocol] Error:', e);
+      return new Response('Error loading file', { status: 500 });
+    }
   });
 
   createWindow();
