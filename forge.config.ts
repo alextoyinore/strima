@@ -11,13 +11,20 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     executableName: 'strima',
+    icon: './assets/icon'
   },
   rebuildConfig: {},
   makers: [
-    new MakerSquirrel({}),
+    new MakerSquirrel({
+      setupIcon: './assets/icon.ico',
+    }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
-    new MakerDeb({}),
+    new MakerDeb({
+      options: {
+        icon: './assets/icon.png'
+      }
+    }),
   ],
   plugins: [
     new VitePlugin({

@@ -9,4 +9,5 @@ contextBridge.exposeInMainWorld('electron', {
   selectFile: (options: any) => ipcRenderer.invoke('select-file', options),
   saveConfig: (config: any) => ipcRenderer.send('save-config', config),
   loadConfig: () => ipcRenderer.invoke('load-config'),
+  openExternal: (url: string) => ipcRenderer.send('open-external', url),
 });

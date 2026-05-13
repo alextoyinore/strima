@@ -55,6 +55,7 @@ body {
   flex-direction: column;
   height: 100vh;
   background-color: var(--bg-1);
+  color: var(--tx-1);
 }
 
 /* Title Bar */
@@ -534,7 +535,7 @@ body {
 
 /* Modals */
 .modal-overlay { position: fixed; inset: 0; background-color: rgba(0, 0, 0, 0.8); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-.modal-box { background-color: var(--bg-2); width: 90%; max-width: 800px; border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.modal-box { background-color: var(--bg-2); color: var(--tx-1); width: 90%; max-width: 800px; border-radius: 8px; border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
 .modal-head { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; position: relative; }
 .modal-head h2 { font-size: 16px; font-weight: 700; }
 
@@ -614,4 +615,27 @@ body {
 
 .seeker-bar:focus {
   background: var(--border);
+}
+.empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--tx-2);
+  opacity: 0.5;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.empty-state p {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.empty-state svg {
+  stroke-width: 1.5;
 }

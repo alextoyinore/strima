@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer, dialog, protocol, net } from 'electron';
+import { app, BrowserWindow, ipcMain, desktopCapturer, dialog, protocol, net, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -68,6 +68,10 @@ ipcMain.on('window-control', (event, command) => {
   if (command === 'minimize') win.minimize();
   if (command === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize();
   if (command === 'close') win.close();
+});
+
+ipcMain.on('open-external', (event, url) => {
+  shell.openExternal(url);
 });
 
 ipcMain.handle('select-file', async (event, options) => {

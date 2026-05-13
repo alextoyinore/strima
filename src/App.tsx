@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, ChevronLeft, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward } from 'lucide-react';
+import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, ChevronLeft, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward, HelpCircle, Info, MousePointer2, ExternalLink } from 'lucide-react';
 import Composer from './components/Composer';
 
 interface Source {
@@ -61,11 +61,12 @@ interface Scene {
 interface StreamingConfig {
   rtmpUrl: string;
   streamKey: string;
+  bitrate: number;
 }
 
 type ThemeMode = 'light' | 'dark' | 'system';
 type AccentColor = 'slate' | 'gold' | 'teal' | 'crimson' | 'electric';
-type SelectorTab = 'screens' | 'cameras';
+type SelectorTab = 'screens' | 'windows' | 'cameras';
 
 const App: React.FC = () => {
   const [programSources, setProgramSources] = useState<Source[]>([]);
@@ -79,7 +80,8 @@ const App: React.FC = () => {
   ]);
   const [streamingConfig, setStreamingConfig] = useState<StreamingConfig>({
     rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2',
-    streamKey: ''
+    streamKey: '',
+    bitrate: 6000
   });
   
   const [activeSceneId, setActiveSceneId] = useState('scene-1');
@@ -89,6 +91,8 @@ const App: React.FC = () => {
   const [isSelectorOpen, setIsSelectorOpen] = useState(false);
   const [selectorTab, setSelectorTab] = useState<SelectorTab>('screens');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [availableScreens, setAvailableScreens] = useState<any[]>([]);
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
   
@@ -474,7 +478,11 @@ const App: React.FC = () => {
     if (!composerStreamRef.current) return;
     if (!streamingConfig.streamKey) { alert('Stream Key missing'); return; }
     setIsStreaming(true);
-    await window.electron.startFFmpeg({ isStreaming: true, streamUrl: `${streamingConfig.rtmpUrl}/${streamingConfig.streamKey}` });
+    await window.electron.startFFmpeg({ 
+      isStreaming: true, 
+      streamUrl: `${streamingConfig.rtmpUrl}/${streamingConfig.streamKey}`,
+      bitrate: streamingConfig.bitrate
+    });
     const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: 'video/webm;codecs=h264', videoBitsPerSecond: 6000000 });
     recorder.ondataavailable = async (e) => { if (e.data.size > 0) window.electron.sendChunk(await e.data.arrayBuffer()); };
     recorder.start(100);
@@ -576,7 +584,9 @@ const App: React.FC = () => {
               </div>
             )}
           </div>
-          <button className="icon-btn" onClick={() => setIsSettingsOpen(true)}><SettingsIcon size={20} /></button>
+          <button className="icon-btn" onClick={() => setIsHelpOpen(true)} title="Help"><HelpCircle size={20} /></button>
+          <button className="icon-btn" onClick={() => setIsAboutOpen(true)} title="About"><Info size={20} /></button>
+          <button className="icon-btn" onClick={() => setIsSettingsOpen(true)} title="Settings"><SettingsIcon size={20} /></button>
         </div>
       </header>
 
@@ -983,8 +993,8 @@ const App: React.FC = () => {
                         </div>
                     ) : (
                         <div className="empty-state">
-                            <Move size={24} />
-                            <p>Select Item</p>
+                            <MousePointer2 size={32} />
+                            <p>Select an item to edit properties</p>
                         </div>
                     )}
                 </div>
@@ -999,12 +1009,18 @@ const App: React.FC = () => {
                 <h2>Add Input</h2>
                 <div className="tab-row">
                     <button className={selectorTab === 'screens' ? 'active' : ''} onClick={() => setSelectorTab('screens')} style={{ color: selectorTab === 'screens' ? 'var(--accent)' : 'var(--tx-1)' }}>Screens</button>
+                    <button className={selectorTab === 'windows' ? 'active' : ''} onClick={() => setSelectorTab('windows')} style={{ color: selectorTab === 'windows' ? 'var(--accent)' : 'var(--tx-1)' }}>Windows</button>
                     <button className={selectorTab === 'cameras' ? 'active' : ''} onClick={() => setSelectorTab('cameras')} style={{ color: selectorTab === 'cameras' ? 'var(--accent)' : 'var(--tx-1)' }}>Cameras</button>
                 </div>
-                <button onClick={() => setIsSelectorOpen(false)} className="close-x"><X size={20} /></button>
+                <button onClick={() => setIsSelectorOpen(false)} className="icon-btn"><X size={20} /></button>
             </div>
             <div className="modal-grid">
-                {selectorTab === 'screens' ? availableScreens.map(source => (
+                {selectorTab === 'screens' ? availableScreens.filter(s => s.id.startsWith('screen')).map(source => (
+                    <div key={source.id} className="grid-item" onClick={() => addSource(source)}>
+                        <img src={source.thumbnail.toDataURL()} alt="" />
+                        <span>{source.name}</span>
+                    </div>
+                )) : selectorTab === 'windows' ? availableScreens.filter(s => s.id.startsWith('window')).map(source => (
                     <div key={source.id} className="grid-item" onClick={() => addSource(source)}>
                         <img src={source.thumbnail.toDataURL()} alt="" />
                         <span>{source.name}</span>
@@ -1025,31 +1041,114 @@ const App: React.FC = () => {
           <div className="modal-box settings">
             <div className="modal-head">
                 <h2>Broadcasting</h2>
-                <button onClick={() => setIsSettingsOpen(false)} className="close-x"><X size={20} /></button>
+                <button onClick={() => setIsSettingsOpen(false)} className="icon-btn"><X size={20} /></button>
             </div>
             <div className="modal-form">
                 <div className="form-group">
                     <label>Workspace Management</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'var(--bg-1)', borderRadius: '6px', border: '1px solid var(--border)' }}>
-                        <div className="flex-1">
-                            <div style={{ fontSize: '14px', fontWeight: '600' }}>Auto-save Changes</div>
-                            <div style={{ fontSize: '12px', opacity: 0.6 }}>Automatically persist workspace modifications</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '12px', background: 'var(--bg-1)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                        <div>
+                            <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--tx-1)' }}>Auto-save Changes</div>
+                            <div style={{ fontSize: '12px', opacity: 0.6, color: 'var(--tx-2)' }}>Automatically persist workspace modifications and layout state</div>
                         </div>
                         <button 
                             className={`toggle-btn ${isAutoSaveEnabled ? 'active' : ''}`} 
                             onClick={() => setIsAutoSaveEnabled(!isAutoSaveEnabled)}
-                            style={{ padding: '6px 12px' }}
+                            style={{ padding: '8px', margin: 0, width: '100%' }}
                         >
-                            {isAutoSaveEnabled ? 'Enabled' : 'Disabled'}
+                            {isAutoSaveEnabled ? 'Auto-save Enabled' : 'Auto-save Disabled'}
                         </button>
                     </div>
                 </div>
                 <div className="menu-divider" style={{ margin: '16px 0' }}></div>
-                <div className="form-group"><label>RTMP URL</label><input type="text" value={streamingConfig.rtmpUrl} onChange={(e) => setStreamingConfig({ ...streamingConfig, rtmpUrl: e.target.value })} /></div>
-                <div className="form-group"><label>Stream Key</label><input type="password" value={streamingConfig.streamKey} onChange={(e) => setStreamingConfig({ ...streamingConfig, streamKey: e.target.value })} /></div>
+                <div className="editor-grid" style={{ gap: '16px' }}>
+                    <div className="form-group"><label>RTMP URL</label><input type="text" value={streamingConfig.rtmpUrl} onChange={(e) => setStreamingConfig({ ...streamingConfig, rtmpUrl: e.target.value })} /></div>
+                    <div className="form-group">
+                        <label>Bitrate (kbps)</label>
+                        <select 
+                            value={streamingConfig.bitrate} 
+                            onChange={(e) => setStreamingConfig({ ...streamingConfig, bitrate: parseInt(e.target.value) })}
+                            style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', color: 'var(--tx-1)', padding: '10px', borderRadius: '6px', outline: 'none' }}
+                        >
+                            <option value={1000}>1000 (480p)</option>
+                            <option value={2500}>2500 (720p)</option>
+                            <option value={4000}>4000 (720p 60fps)</option>
+                            <option value={6000}>6000 (1080p)</option>
+                            <option value={9000}>9000 (1080p 60fps)</option>
+                            <option value={12000}>12000 (High / 4K)</option>
+                        </select>
+                    </div>
+                </div>
+                <div className="form-group">
+                    <label>Stream Key</label>
+                    <input type="password" value={streamingConfig.streamKey} onChange={(e) => setStreamingConfig({ ...streamingConfig, streamKey: e.target.value })} />
+                    <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '11px', padding: '8px', background: 'var(--bg-3)', borderRadius: '4px' }}>
+                        <span style={{ color: 'var(--tx-2)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <Globe size={12} /> Get Keys:
+                        </span>
+                        <a href="#" onClick={(e) => { e.preventDefault(); window.electron.openExternal('https://www.youtube.com/live_dashboard'); }} style={{ color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            YouTube <ExternalLink size={10} />
+                        </a>
+                        <a href="#" onClick={(e) => { e.preventDefault(); window.electron.openExternal('https://dashboard.twitch.tv/settings/stream'); }} style={{ color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            Twitch <ExternalLink size={10} />
+                        </a>
+                        <a href="#" onClick={(e) => { e.preventDefault(); window.electron.openExternal('https://www.facebook.com/live/producer'); }} style={{ color: 'var(--accent)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            Facebook <ExternalLink size={10} />
+                        </a>
+                    </div>
+                </div>
             </div>
             <div className="modal-foot">
                 <button className="btn-primary" onClick={() => setIsSettingsOpen(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isHelpOpen && (
+        <div className="modal-overlay">
+          <div className="modal-box settings">
+            <div className="modal-head">
+                <h2>Help & Shortcuts</h2>
+                <button onClick={() => setIsHelpOpen(false)} className="icon-btn"><X size={20} /></button>
+            </div>
+            <div className="modal-form" style={{ padding: '20px', maxHeight: '60vh', overflowY: 'auto' }}>
+                <div className="form-group">
+                    <h3 style={{ marginTop: 0, marginBottom: '12px' }}>Keyboard Shortcuts</h3>
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Switch to Scene 1-9</span><kbd style={{ background: 'var(--bg-2)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border)' }}>1-9</kbd></div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Execute Transition</span><kbd style={{ background: 'var(--bg-2)', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border)' }}>Enter</kbd></div>
+                    </div>
+                </div>
+                <div className="menu-divider" style={{ margin: '16px 0' }}></div>
+                <div className="form-group">
+                    <h3 style={{ marginTop: 0, marginBottom: '12px' }}>Quick Start Guide</h3>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '14px', lineHeight: '1.5' }}>1. Add sources from the Assets panel on the left.</p>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '14px', lineHeight: '1.5' }}>2. Arrange sources in the Preview window.</p>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '14px', lineHeight: '1.5' }}>3. Create scenes to quickly switch layouts.</p>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '14px', lineHeight: '1.5' }}>4. Click Cut or Fade (or press Enter) to send to Program.</p>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '14px', lineHeight: '1.5' }}>5. Use Go Live or Record to start broadcasting.</p>
+                </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isAboutOpen && (
+        <div className="modal-overlay">
+          <div className="modal-box settings" style={{ maxWidth: '400px' }}>
+            <div className="modal-head">
+                <h2>About STRIMA STUDIO PRO</h2>
+                <button onClick={() => setIsAboutOpen(false)} className="icon-btn"><X size={20} /></button>
+            </div>
+            <div className="modal-form" style={{ padding: '20px', textAlign: 'center' }}>
+                <Layers size={48} className="brand-icon" style={{ margin: '0 auto 16px', color: 'var(--accent)', display: 'block' }} />
+                <h3 style={{ margin: '0 0 8px 0' }}>STRIMA STUDIO PRO</h3>
+                <p style={{ margin: '0 0 16px 0', fontSize: '14px', opacity: 0.7 }}>Version 1.0.0</p>
+                <p style={{ margin: '0 0 24px 0', fontSize: '14px', lineHeight: '1.5' }}>
+                  A professional, highly customizable live video production engine.
+                </p>
+                <p style={{ margin: '0', fontSize: '12px', opacity: 0.5 }}>© 2026 Alexander Ore. All rights reserved.</p>
             </div>
           </div>
         </div>
