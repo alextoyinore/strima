@@ -59,7 +59,11 @@ const createWindow = () => {
 
 // IPC Handlers
 ipcMain.handle('get-sources', async () => {
-  return await desktopCapturer.getSources({ types: ['window', 'screen'] });
+  return await desktopCapturer.getSources({ 
+    types: ['window', 'screen'],
+    thumbnailSize: { width: 320, height: 180 },
+    fetchWindowIcons: true
+  });
 });
 
 ipcMain.on('window-control', (event, command) => {
