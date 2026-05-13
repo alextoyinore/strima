@@ -19,22 +19,21 @@ export class FFmpegManager {
     const args = [
       '-i', 'pipe:0', // Read from stdin
       '-vcodec', 'libx264',
-      '-preset', 'veryfast',
+      '-preset', 'ultrafast',
       '-maxrate', `${bitrate}k`,
       '-bufsize', `${bitrate * 2}k`,
       '-pix_fmt', 'yuv420p',
-      '-g', '60', // Keyframe every 2 seconds (at 30fps)
+      '-g', '60', 
       '-c:a', 'aac',
       '-b:a', '128k',
       '-ar', '44100',
+      '-movflags', '+faststart',
       '-f', options.isStreaming ? 'flv' : 'mp4',
     ];
 
     if (options.isStreaming && options.streamUrl) {
       args.push(options.streamUrl);
     } else {
-      // For MP4 recording, we need to allow overwriting and use a container that supports fragmented output if needed
-      // but standard MP4 is fine if we close properly.
       args.push('-y', finalPath);
     }
 

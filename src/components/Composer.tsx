@@ -30,11 +30,13 @@ interface Source {
 
 interface Overlay {
   id: string;
-  type: 'lower-third' | 'ticker' | 'logo';
+  type: 'lower-third' | 'ticker' | 'logo' | 'headline';
   title: string;
   subtitle: string;
   visible: boolean;
   data?: string;
+  variant?: 'classic' | 'modern' | 'minimal';
+  animation?: 'fade' | 'slide-left' | 'slide-up';
   x?: number;
   y?: number;
   width?: number;
@@ -44,8 +46,20 @@ interface Overlay {
     fontSize: number;
     color: string;
     backgroundColor: string;
+    opacity?: number;
+    subtitleColor?: string;
+    subtitleBackgroundColor?: string;
+    subtitleFontSize?: number;
     accentColor?: string;
+    showAccent?: boolean;
+    fontFamily?: string;
+    subtitleFontFamily?: string;
+    textAlign?: 'left' | 'center' | 'right';
   };
+  subtitleX?: number;
+  subtitleY?: number;
+  subtitleWidth?: number;
+  subtitleHeight?: number;
 }
 
 interface ComposerProps {
@@ -59,6 +73,9 @@ interface ComposerProps {
   onStreamCreated?: (stream: MediaStream) => void;
   onPlaybackUpdate?: (id: string, currentTime: number, duration: number) => void;
   seekRequest?: { id: string, time: number, timestamp: number } | null;
+  showSafeAreas?: boolean;
+  showGrid?: boolean;
+  micStream?: MediaStream | null;
 }
 
 const Composer: React.FC<ComposerProps> = ({ 
@@ -70,8 +87,11 @@ const Composer: React.FC<ComposerProps> = ({
   onSourceSelect,
   onSourceMetadata,
   onStreamCreated,
-  onPlaybackUpdate,
-  seekRequest
+  onPlaybackUpdate, 
+  seekRequest,
+  showSafeAreas,
+  showGrid,
+  micStream
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoElements = useRef<Record<string, HTMLVideoElement>>({});
@@ -81,10 +101,12 @@ const Composer: React.FC<ComposerProps> = ({
   const streams = useRef<Record<string, MediaStream>>({});
   const animationFrameRef = useRef<number>();
   const tickerX = useRef(1920);
+  const overlayProgress = useRef<Record<string, number>>({});
 
   const audioContext = useRef<AudioContext>();
   const audioDestination = useRef<MediaStreamAudioDestinationNode>();
   const audioNodes = useRef<Record<string, { source: AudioNode, gain: GainNode }>>({});
+  const micNode = useRef<{ source: MediaStreamAudioSourceNode, gain: GainNode } | null>(null);
 
   const isDragging = useRef(false);
   const dragStartPos = useRef({ x: 0, y: 0 });
@@ -99,7 +121,20 @@ const Composer: React.FC<ComposerProps> = ({
         audioContext.current = new (window.AudioContext || (window as any).webkitAudioContext)();
         audioDestination.current = audioContext.current.createMediaStreamDestination();
     }
+  }, []);
 
+  useEffect(() => {
+    if (canvasRef.current && audioDestination.current && onStreamCreated) {
+        const canvasStream = canvasRef.current.captureStream(30);
+        const combinedStream = new MediaStream([
+            ...canvasStream.getVideoTracks(),
+            ...audioDestination.current.stream.getAudioTracks()
+        ]);
+        onStreamCreated(combinedStream);
+    }
+  }, [onStreamCreated]);
+
+  useEffect(() => {
     const loadPdf = async (source: Source) => {
         const pageNum = source.page || 1;
         const cacheKey = `${source.id}-${pageNum}`;
@@ -135,11 +170,34 @@ const Composer: React.FC<ComposerProps> = ({
     };
 
     const updateSources = async () => {
+      // Cleanup removed sources
+      const activeIds = new Set(sources.map(s => s.id));
+      Object.keys(streams.current).forEach(id => {
+          if (!activeIds.has(id)) {
+              streams.current[id].getTracks().forEach(t => t.stop());
+              delete streams.current[id];
+              delete videoElements.current[id];
+          }
+      });
+      Object.keys(audioNodes.current).forEach(id => {
+          if (!activeIds.has(id)) {
+              audioNodes.current[id].source.disconnect();
+              audioNodes.current[id].gain.disconnect();
+              delete audioNodes.current[id];
+              delete audioElements.current[id];
+          }
+      });
+
       if (canvasRef.current && !isTransitioning.current) {
           const snapshot = document.createElement('canvas');
           snapshot.width = 1920; snapshot.height = 1080;
           const sCtx = snapshot.getContext('2d');
-          if (sCtx) { sCtx.drawImage(canvasRef.current, 0, 0); lastCanvasSnapshot.current = snapshot; transitionProgress.current = 1.0; isTransitioning.current = true; }
+          if (sCtx) { 
+              sCtx.drawImage(canvasRef.current, 0, 0); 
+              lastCanvasSnapshot.current = snapshot; 
+              transitionProgress.current = 1.0; 
+              isTransitioning.current = true; 
+          }
       }
 
       for (const source of sources) {
@@ -215,6 +273,14 @@ const Composer: React.FC<ComposerProps> = ({
             imageElements.current[source.id + '-cover'] = img;
         }
       }
+
+      // Load Overlay Assets (Logos)
+      for (const overlay of overlays) {
+        if (overlay.type === 'logo' && overlay.data && !imageElements.current[overlay.id]) {
+            const img = new Image(); img.src = overlay.data; img.crossOrigin = 'anonymous';
+            imageElements.current[overlay.id] = img;
+        }
+      }
     };
     updateSources();
   }, [sources, overlays, interactive]);
@@ -234,6 +300,27 @@ const Composer: React.FC<ComposerProps> = ({
       }
     });
   }, [sources]);
+
+  // Handle Global Microphone
+  useEffect(() => {
+    if (micStream && audioContext.current && audioDestination.current) {
+        if (micNode.current) {
+            micNode.current.source.disconnect();
+            micNode.current.gain.disconnect();
+        }
+        const sourceNode = audioContext.current.createMediaStreamSource(micStream);
+        const gainNode = audioContext.current.createGain();
+        gainNode.gain.value = 1.0;
+        sourceNode.connect(gainNode);
+        gainNode.connect(audioDestination.current);
+        gainNode.connect(audioContext.current.destination);
+        micNode.current = { source: sourceNode, gain: gainNode };
+    } else if (!micStream && micNode.current) {
+        micNode.current.source.disconnect();
+        micNode.current.gain.disconnect();
+        micNode.current = null;
+    }
+  }, [micStream]);
 
   // Handle Seek Requests
   useEffect(() => {
@@ -357,37 +444,216 @@ const Composer: React.FC<ComposerProps> = ({
       });
 
       overlays.forEach(overlay => {
-        if (!overlay.visible) return;
+        // Animation Logic
+        const target = overlay.visible ? 1 : 0;
+        if (overlayProgress.current[overlay.id] === undefined) overlayProgress.current[overlay.id] = 0;
+        const current = overlayProgress.current[overlay.id];
+        if (current < target) overlayProgress.current[overlay.id] = Math.min(target, current + 0.06);
+        else if (current > target) overlayProgress.current[overlay.id] = Math.max(target, current - 0.06);
+        
+        const progress = overlayProgress.current[overlay.id];
+        if (progress <= 0) return;
+
+        ctx.save();
+        const s = overlay.style || { fontSize: 44, color: 'white', backgroundColor: 'rgba(99, 102, 241, 0.95)', accentColor: 'rgba(15, 23, 42, 0.9)' };
+        const opacity = (s.opacity ?? 1) * progress;
+        ctx.globalAlpha = opacity;
+        
+        const anim = overlay.animation || 'fade';
+        if (anim === 'slide-left') ctx.translate((1 - progress) * -300, 0);
+        else if (anim === 'slide-up') ctx.translate(0, (1 - progress) * 150);
+
+        const mainFont = s.fontFamily || 'Outfit, sans-serif';
+        const subFont = s.subtitleFontFamily || 'Inter, sans-serif';
+
         if (overlay.type === 'lower-third') {
-          const s = overlay.style || { fontSize: 44, color: 'white', backgroundColor: 'rgba(99, 102, 241, 0.95)', accentColor: 'rgba(15, 23, 42, 0.9)' };
-          ctx.fillStyle = s.backgroundColor; ctx.fillRect(100, 850, 650, 100);
-          ctx.fillStyle = s.color; ctx.font = `bold ${s.fontSize}px Outfit, sans-serif`; ctx.textAlign = 'left'; ctx.fillText(overlay.title.toUpperCase(), 140, 915);
-          ctx.fillStyle = s.accentColor || 'rgba(15, 23, 42, 0.9)'; ctx.fillRect(100, 950, 450, 50);
-          ctx.fillStyle = s.color; ctx.font = `${Math.round(s.fontSize * 0.5)}px Inter, sans-serif`; ctx.fillText(overlay.subtitle.toUpperCase(), 140, 985);
+          const variant = overlay.variant || 'classic';
+          const align = s.textAlign || 'left';
+          
+          const oX = overlay.x ?? 100;
+          const oY = overlay.y ?? 850;
+          const oW = overlay.width ?? 650;
+          const oH = overlay.height ?? 100;
+
+          const sX = overlay.subtitleX ?? oX;
+          const sY = overlay.subtitleY ?? (oY + oH);
+          const sW = overlay.subtitleWidth ?? oW;
+          const sH = overlay.subtitleHeight ?? 50;
+
+          if (variant === 'classic') {
+            ctx.fillStyle = s.backgroundColor; ctx.fillRect(oX, oY, oW, oH);
+            ctx.fillStyle = s.color; ctx.font = `bold ${s.fontSize}px ${mainFont}`; ctx.textAlign = align;
+            const textX = align === 'left' ? oX + 40 : (align === 'right' ? oX + oW - 40 : oX + oW / 2);
+            ctx.fillText(overlay.title.toUpperCase(), textX, oY + oH * 0.65);
+            
+            if (s.showAccent !== false) {
+              ctx.fillStyle = s.subtitleBackgroundColor || s.accentColor || 'rgba(15, 23, 42, 0.9)'; 
+              ctx.fillRect(sX, sY, sW, sH);
+              ctx.fillStyle = s.color; ctx.font = `${Math.round(s.fontSize * 0.5)}px ${subFont}`; 
+              const subTextX = align === 'left' ? sX + 40 : (align === 'right' ? sX + sW - 40 : sX + sW / 2);
+              ctx.fillText(overlay.subtitle.toUpperCase(), subTextX, sY + sH * 0.7);
+            }
+          } else if (variant === 'modern') {
+            const grad = ctx.createLinearGradient(oX, oY, oX + oW, oY);
+            if (align === 'right') { grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(1, s.backgroundColor); }
+            else { grad.addColorStop(0, s.backgroundColor); grad.addColorStop(1, 'rgba(0,0,0,0)'); }
+            ctx.fillStyle = grad; ctx.fillRect(oX, oY, oW, oH + 20);
+            if (s.showAccent !== false) {
+              ctx.fillStyle = s.accentColor || '#fff'; ctx.fillRect(align === 'right' ? oX + oW - 6 : oX, oY, 6, oH + 20);
+            }
+            ctx.fillStyle = s.color; ctx.font = `bold ${s.fontSize}px ${mainFont}`; ctx.textAlign = align;
+            const textX = align === 'left' ? oX + 30 : (align === 'right' ? oX + oW - 30 : oX + oW / 2);
+            ctx.fillText(overlay.title, textX, oY + (oH + 20) * 0.45);
+            ctx.fillStyle = s.color; ctx.globalAlpha = 0.7 * opacity; ctx.font = `${Math.round(s.fontSize * 0.6)}px ${subFont}`; 
+            ctx.fillText(overlay.subtitle, textX, oY + (oH + 20) * 0.8);
+          } else if (variant === 'minimal') {
+            const tw = ctx.measureText(overlay.title).width + 80;
+            const mX = align === 'left' ? oX : (align === 'right' ? oX + oW - tw : oX + oW/2 - tw/2);
+            ctx.fillStyle = s.backgroundColor; ctx.beginPath(); ctx.roundRect(mX, oY + 30, tw, 80, [0, 40, 40, 0]); ctx.fill();
+            ctx.fillStyle = s.color; ctx.font = `500 ${s.fontSize}px ${mainFont}`; ctx.textAlign = align;
+            const textX = align === 'left' ? mX + 40 : (align === 'right' ? mX + tw - 40 : mX + tw/2);
+            ctx.fillText(overlay.title, textX, oY + 85);
+            ctx.fillStyle = s.accentColor || '#fff'; ctx.font = `bold ${Math.round(s.fontSize * 0.4)}px ${subFont}`; ctx.fillText(overlay.subtitle.toUpperCase(), textX, oY + 20);
+          }
         }
+
+        if (overlay.type === 'headline') {
+            const align = s.textAlign || 'left';
+            const oX = overlay.x ?? 0;
+            const oY = overlay.y ?? 800;
+            const oW = overlay.width ?? 1200;
+            const oH = overlay.height ?? 140;
+
+            const mainH = oH * 0.65;
+            const subH = oH * 0.35;
+
+            // Main Bar
+            ctx.fillStyle = s.backgroundColor;
+            ctx.fillRect(oX, oY, oW, mainH);
+            
+            // Sub Bar
+            ctx.fillStyle = s.subtitleBackgroundColor || 'rgba(0,0,0,0.6)';
+            ctx.fillRect(oX, oY + mainH, oW, subH);
+
+            // Accent Border
+            if (s.showAccent !== false) {
+              ctx.fillStyle = s.accentColor || '#6366f1';
+              ctx.fillRect(align === 'right' ? oX + oW - 10 : oX, oY, 10, oH);
+            }
+
+            ctx.textAlign = align;
+            ctx.fillStyle = s.color;
+            ctx.font = `700 ${s.fontSize}px ${mainFont}`;
+            const textX = align === 'left' ? oX + 60 : (align === 'right' ? oX + oW - 60 : oX + oW / 2);
+            ctx.fillText(overlay.title, textX, oY + mainH * 0.7);
+            
+            ctx.font = `600 ${Math.round(s.fontSize * 0.45)}px ${subFont}`;
+            ctx.fillStyle = s.subtitleColor || 'rgba(255,255,255,0.9)';
+            ctx.fillText(overlay.subtitle, textX, oY + mainH + subH * 0.75);
+        }
+
         if (overlay.type === 'ticker') {
-          const speed = overlay.speed || 3; const s = overlay.style || { fontSize: 24, color: 'white', backgroundColor: 'rgba(15, 23, 42, 0.95)' };
-          ctx.fillStyle = s.backgroundColor; ctx.fillRect(0, 1030, 1920, 50);
-          ctx.fillStyle = s.color; ctx.font = `bold ${s.fontSize}px Inter, sans-serif`; ctx.textAlign = 'left';
-          tickerX.current -= speed; if (tickerX.current < -ctx.measureText(overlay.title).width - 100) tickerX.current = 1920;
-          ctx.fillText(overlay.title, tickerX.current, 1030 + (50 + s.fontSize/2) / 2);
-          ctx.fillStyle = s.accentColor || 'rgba(99, 102, 241, 1)'; ctx.fillRect(0, 1025, 1920, 5);
+          const speed = overlay.speed || 3; 
+          const oX = overlay.x ?? 0;
+          const oY = overlay.y ?? 1030;
+          const oW = overlay.width ?? 1920;
+          const oH = overlay.height ?? 50;
+          
+          ctx.fillStyle = s.backgroundColor; ctx.fillRect(oX, oY, oW, oH);
+          ctx.fillStyle = s.color; ctx.font = `bold ${s.fontSize}px ${mainFont}`; ctx.textAlign = 'left';
+          
+          tickerX.current -= speed; 
+          if (tickerX.current < oX - ctx.measureText(overlay.title).width - 100) tickerX.current = oX + oW;
+          
+          // Clip ticker to its width
+          ctx.save();
+          ctx.beginPath(); ctx.rect(oX, oY, oW, oH); ctx.clip();
+          ctx.fillText(overlay.title, tickerX.current, oY + (oH + s.fontSize/2) / 2);
+          ctx.restore();
+
+          if (s.showAccent !== false) {
+            ctx.fillStyle = s.accentColor || 'rgba(99, 102, 241, 1)'; 
+            ctx.fillRect(oX, oY - 5, oW, 5);
+          }
         }
+
         if (overlay.type === 'logo') {
           const img = imageElements.current[overlay.id];
-          if (img && img.complete) ctx.drawImage(img, overlay.x || 1700, overlay.y || 50, overlay.width || 150, overlay.height || 150);
+          if (img && img.complete) {
+            ctx.globalAlpha = (s.opacity ?? 1);
+            ctx.drawImage(img, overlay.x ?? 1700, overlay.y ?? 50, overlay.width ?? 150, overlay.height ?? 150);
+          }
         }
+
+        ctx.restore();
       });
 
       if (isTransitioning.current && lastCanvasSnapshot.current) {
           ctx.globalAlpha = transitionProgress.current; ctx.drawImage(lastCanvasSnapshot.current, 0, 0); ctx.globalAlpha = 1.0;
           transitionProgress.current -= 0.04; if (transitionProgress.current <= 0) { isTransitioning.current = false; lastCanvasSnapshot.current = null; }
       }
+
+      if (showGrid) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([10, 10]);
+
+        // Vertical Center Line
+        ctx.beginPath();
+        ctx.moveTo(960, 0); ctx.lineTo(960, 1080);
+        ctx.stroke();
+
+        // Rule of Thirds (Vertical)
+        ctx.beginPath();
+        ctx.moveTo(640, 0); ctx.lineTo(640, 1080);
+        ctx.moveTo(1280, 0); ctx.lineTo(1280, 1080);
+        ctx.stroke();
+
+        // Rule of Thirds (Horizontal)
+        ctx.beginPath();
+        ctx.moveTo(0, 360); ctx.lineTo(1920, 360);
+        ctx.moveTo(0, 720); ctx.lineTo(1920, 720);
+        ctx.stroke();
+        
+        ctx.restore();
+      }
+
+      if (showSafeAreas) {
+        ctx.save();
+        ctx.setLineDash([5, 5]);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        
+        // Action Safe (90%)
+        ctx.strokeRect(1920 * 0.05, 1080 * 0.05, 1920 * 0.9, 1080 * 0.9);
+        
+        // Title Safe (80%)
+        ctx.strokeRect(1920 * 0.1, 1080 * 0.1, 1920 * 0.8, 1080 * 0.8);
+
+        // Social Media Safe Area (9:16 center crop)
+        const socialW = 1080 * (9/16); 
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.beginPath();
+        ctx.moveTo(960 - socialW/2, 0); ctx.lineTo(960 - socialW/2, 1080);
+        ctx.moveTo(960 + socialW/2, 0); ctx.lineTo(960 + socialW/2, 1080);
+        ctx.stroke();
+
+        ctx.font = '12px Inter, sans-serif';
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.textAlign = 'left';
+        ctx.fillText('ACTION SAFE', 1920 * 0.05 + 5, 1080 * 0.05 + 15);
+        ctx.fillText('TITLE SAFE', 1920 * 0.1 + 5, 1080 * 0.1 + 15);
+        ctx.textAlign = 'center';
+        ctx.fillText('9:16 SOCIAL ZONE', 960, 20);
+        
+        ctx.restore();
+      }
+
       animationFrameRef.current = requestAnimationFrame(render);
     };
     render();
     return () => { if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current); };
-  }, [sources, overlays, selectedSourceId, interactive]);
+  }, [sources, overlays, selectedSourceId, interactive, showSafeAreas, showGrid]);
 
   return (
     <canvas ref={canvasRef} width={1920} height={1080} 

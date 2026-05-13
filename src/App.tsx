@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, ChevronLeft, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward, HelpCircle, Info, MousePointer2, ExternalLink } from 'lucide-react';
+import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, ChevronLeft, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward, HelpCircle, Info, MousePointer2, ExternalLink, BookOpen, Check } from 'lucide-react';
 import Composer from './components/Composer';
 
 interface Source {
@@ -33,11 +33,13 @@ interface Source {
 
 interface Overlay {
   id: string;
-  type: 'lower-third' | 'ticker';
+  type: 'lower-third' | 'ticker' | 'logo' | 'headline';
   title: string;
   subtitle: string;
   visible: boolean;
   data?: string;
+  variant?: 'classic' | 'modern' | 'minimal';
+  animation?: 'fade' | 'slide-left' | 'slide-up';
   x?: number;
   y?: number;
   width?: number;
@@ -47,8 +49,20 @@ interface Overlay {
     fontSize: number;
     color: string;
     backgroundColor: string;
+    opacity?: number;
+    subtitleColor?: string;
+    subtitleBackgroundColor?: string;
+    subtitleFontSize?: number;
     accentColor?: string;
+    showAccent?: boolean;
+    fontFamily?: string;
+    subtitleFontFamily?: string;
+    textAlign?: 'left' | 'center' | 'right';
   };
+  subtitleX?: number;
+  subtitleY?: number;
+  subtitleWidth?: number;
+  subtitleHeight?: number;
 }
 
 interface Scene {
@@ -98,6 +112,12 @@ const App: React.FC = () => {
   
   const [isStreaming, setIsStreaming] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<{ text: string, type: 'error' | 'success' | 'info' } | null>(null);
+  
+  const showStatus = (text: string, type: 'error' | 'success' | 'info' = 'info') => {
+    setStatusMessage({ text, type });
+    setTimeout(() => setStatusMessage(null), 3000);
+  };
   const [isMicEnabled, setIsMicEnabled] = useState(false);
   
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
@@ -111,6 +131,10 @@ const App: React.FC = () => {
   const [assetSidebarWidth, setAssetSidebarWidth] = useState(160);
   const [isPdfGridOpen, setIsPdfGridOpen] = useState(false);
   const [pdfGridSourceId, setPdfGridSourceId] = useState<string | null>(null);
+  const [showSafeAreas, setShowSafeAreas] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
+  const [isHowToUseOpen, setIsHowToUseOpen] = useState(false);
+  const [isInfoMenuOpen, setIsInfoMenuOpen] = useState(false);
   const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const isResizingRef = useRef<'console' | 'sidebar' | 'asset-sidebar' | null>(null);
@@ -168,7 +192,10 @@ const App: React.FC = () => {
       scenes, activeSceneId, streamingConfig, themeMode, accentColor, isAutoSaveEnabled,
       consoleHeight, sidebarWidth, assetSidebarWidth 
     });
-    setTimeout(() => setIsSaving(false), 1000);
+    setTimeout(() => {
+        setIsSaving(false);
+        showStatus('Workspace Saved', 'success');
+    }, 1000);
   };
 
   useEffect(() => {
@@ -415,19 +442,37 @@ const App: React.FC = () => {
     setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, overlays: updated } : s));
   };
 
-  const addOverlay = (type: 'lower-third' | 'ticker' | 'logo', data?: string) => {
+  const addOverlay = (type: 'lower-third' | 'ticker' | 'logo' | 'headline', data?: string) => {
     const newOverlay: Overlay = {
       id: `ovl-${Date.now()}`,
       type,
-      title: type === 'logo' ? 'Branding Logo' : (type === 'ticker' ? 'Scroll Text' : 'New Lower Third'),
-      subtitle: type === 'lower-third' ? 'Presenter Title' : '',
+      title: type === 'logo' ? 'Branding Logo' : (type === 'ticker' ? 'Scroll Text' : (type === 'headline' ? 'MAIN HEADLINE' : 'New Lower Third')),
+      subtitle: type === 'lower-third' ? 'Presenter Title' : (type === 'headline' ? 'Supporting text or sub-headline' : ''),
       visible: true,
       data,
-      x: type === 'logo' ? 1700 : undefined,
-      y: type === 'logo' ? 50 : undefined,
-      width: type === 'logo' ? 150 : undefined,
-      height: type === 'logo' ? 150 : undefined,
-      style: type === 'lower-third' ? { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1', accentColor: '#0f172a' } : undefined
+      variant: type === 'lower-third' ? 'classic' : undefined,
+      animation: 'fade',
+      x: type === 'logo' ? 1700 : (type === 'headline' ? 0 : (type === 'ticker' ? 0 : 100)),
+      y: type === 'logo' ? 50 : (type === 'headline' ? 800 : (type === 'ticker' ? 1030 : 850)),
+      width: type === 'logo' ? 150 : (type === 'headline' ? 1200 : (type === 'ticker' ? 1920 : 650)),
+      height: type === 'logo' ? 150 : (type === 'headline' ? 140 : (type === 'ticker' ? 50 : 100)),
+      subtitleX: type === 'headline' ? 0 : (type === 'lower-third' ? 100 : undefined),
+      subtitleY: type === 'headline' ? 890 : (type === 'lower-third' ? 950 : undefined),
+      subtitleWidth: type === 'headline' ? 1200 : (type === 'lower-third' ? 450 : undefined),
+      subtitleHeight: type === 'headline' ? 50 : (type === 'lower-third' ? 50 : undefined),
+      speed: type === 'ticker' ? 3 : undefined,
+      style: (type === 'lower-third' || type === 'headline' || type === 'ticker') ? { 
+        fontSize: type === 'headline' ? 60 : (type === 'ticker' ? 24 : 44), 
+        color: '#ffffff', 
+        backgroundColor: type === 'headline' ? 'rgba(0,0,0,0.85)' : (type === 'ticker' ? '#0f172a' : '#6366f1'), 
+        subtitleBackgroundColor: type === 'headline' ? 'rgba(0,0,0,0.6)' : (type === 'lower-third' ? '#0f172a' : undefined),
+        accentColor: type === 'lower-third' ? '#0f172a' : '#6366f1',
+        showAccent: true,
+        opacity: 1,
+        fontFamily: 'Outfit, sans-serif',
+        subtitleFontFamily: 'Inter, sans-serif',
+        textAlign: 'left'
+      } : undefined
     };
     const updated = [...previewOverlays, newOverlay];
     setPreviewOverlays(updated);
@@ -475,33 +520,65 @@ const App: React.FC = () => {
   };
 
   const startStreaming = async () => {
-    if (!composerStreamRef.current) return;
-    if (!streamingConfig.streamKey) { alert('Stream Key missing'); return; }
+    if (!composerStreamRef.current) {
+        showStatus('Engine not ready. Try again in a moment.', 'error');
+        return;
+    }
+    if (!streamingConfig.streamKey) { 
+        showStatus('Stream Key missing! Check settings.', 'error');
+        setIsSettingsOpen(true);
+        return; 
+    }
     setIsStreaming(true);
-    await window.electron.startFFmpeg({ 
-      isStreaming: true, 
-      streamUrl: `${streamingConfig.rtmpUrl}/${streamingConfig.streamKey}`,
-      bitrate: streamingConfig.bitrate
-    });
-    const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: 'video/webm;codecs=h264', videoBitsPerSecond: 6000000 });
-    recorder.ondataavailable = async (e) => { if (e.data.size > 0) window.electron.sendChunk(await e.data.arrayBuffer()); };
-    recorder.start(100);
-    mediaRecorderRef.current = recorder;
+    showStatus('Connecting to stream...', 'info');
+    try {
+        await window.electron.startFFmpeg({ 
+          isStreaming: true, 
+          streamUrl: `${streamingConfig.rtmpUrl}/${streamingConfig.streamKey}`,
+          bitrate: streamingConfig.bitrate
+        });
+        const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: 'video/webm;codecs=h264', videoBitsPerSecond: 6000000 });
+        recorder.ondataavailable = async (e) => { if (e.data.size > 0) window.electron.sendChunk(await e.data.arrayBuffer()); };
+        recorder.start(1000);
+        mediaRecorderRef.current = recorder;
+        showStatus('Live!', 'success');
+    } catch (e) {
+        showStatus('Streaming failed to start.', 'error');
+        setIsStreaming(false);
+    }
   };
 
   const stopStreaming = async () => { setIsStreaming(false); if (mediaRecorderRef.current) { mediaRecorderRef.current.stop(); mediaRecorderRef.current = null; } await window.electron.stopFFmpeg(); };
 
   const startRecording = async () => {
-    if (!composerStreamRef.current) return;
+    if (!composerStreamRef.current) {
+        showStatus('Engine not ready.', 'error');
+        return;
+    }
     setIsRecording(true);
-    await window.electron.startFFmpeg({ outputPath: `recording-${Date.now()}.mp4`, isStreaming: false });
-    const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: 'video/webm;codecs=h264', videoBitsPerSecond: 5000000 });
-    recorder.ondataavailable = async (e) => { if (e.data.size > 0) window.electron.sendChunk(await e.data.arrayBuffer()); };
-    recorder.start(100);
-    mediaRecorderRef.current = recorder;
+    showStatus('Starting recording...', 'info');
+    try {
+        await window.electron.startFFmpeg({ outputPath: `recording-${Date.now()}.mp4`, isStreaming: false });
+        const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: 'video/webm;codecs=h264', videoBitsPerSecond: 5000000 });
+        recorder.ondataavailable = async (e) => { if (e.data.size > 0) window.electron.sendChunk(await e.data.arrayBuffer()); };
+        recorder.start(1000);
+        mediaRecorderRef.current = recorder;
+        showStatus('Recording Started', 'success');
+    } catch (e) {
+        showStatus('Recording failed to start.', 'error');
+        setIsRecording(false);
+    }
   };
 
-  const stopRecording = async () => { setIsRecording(false); if (mediaRecorderRef.current) { mediaRecorderRef.current.stop(); mediaRecorderRef.current = null; } await window.electron.stopFFmpeg(); };
+  const stopRecording = async () => { 
+    setIsRecording(false); 
+    if (mediaRecorderRef.current) { 
+        mediaRecorderRef.current.stop(); 
+        mediaRecorderRef.current = null; 
+    } 
+    await window.electron.stopFFmpeg();
+    showStatus('Recording saved to Videos folder', 'success');
+  };
 
   const themeMenuRef = useRef<HTMLDivElement>(null);
 
@@ -555,6 +632,25 @@ const App: React.FC = () => {
             </div>
         </div>
         <div className="header-right">
+          {statusMessage && (
+            <div className={`status-toast ${statusMessage.type}`} style={{ 
+                marginRight: '12px', 
+                fontSize: '12px', 
+                fontWeight: '600', 
+                padding: '6px 12px', 
+                borderRadius: '4px',
+                background: statusMessage.type === 'error' ? 'var(--accent-crimson)' : (statusMessage.type === 'success' ? 'var(--accent-teal)' : 'var(--bg-3)'),
+                color: 'white',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+                animation: 'slide-in 0.3s ease-out'
+            }}>
+                {statusMessage.type === 'error' ? <X size={14} /> : (statusMessage.type === 'success' ? <Check size={14} /> : <Info size={14} />)}
+                {statusMessage.text}
+            </div>
+          )}
           <button className="icon-btn" onClick={saveWorkspace} title={isSaving ? 'Workspace Saved!' : 'Save Workspace'} style={{ marginRight: '8px' }}>
             <Save size={20} className={isSaving ? 'animate-pulse' : ''} style={{ color: isSaving ? 'var(--accent-solid)' : 'inherit' }} />
           </button>
@@ -584,9 +680,28 @@ const App: React.FC = () => {
               </div>
             )}
           </div>
-          <button className="icon-btn" onClick={() => setIsHelpOpen(true)} title="Help"><HelpCircle size={20} /></button>
-          <button className="icon-btn" onClick={() => setIsAboutOpen(true)} title="About"><Info size={20} /></button>
           <button className="icon-btn" onClick={() => setIsSettingsOpen(true)} title="Settings"><SettingsIcon size={20} /></button>
+          
+          <div className="theme-selector-container" style={{ marginLeft: '4px' }}>
+            <button className="icon-btn" onClick={() => setIsInfoMenuOpen(!isInfoMenuOpen)} title="Information">
+              <Info size={20} />
+            </button>
+            {isInfoMenuOpen && (
+              <div className="theme-menu" style={{ right: 0 }}>
+                <div className="menu-group">
+                  <button onClick={() => { setIsAboutOpen(true); setIsInfoMenuOpen(false); }} className="menu-opt">
+                    <Info size={14} /> About Strima
+                  </button>
+                  <button onClick={() => { setIsHelpOpen(true); setIsInfoMenuOpen(false); }} className="menu-opt">
+                    <HelpCircle size={14} /> Shortcuts & Help
+                  </button>
+                  <button onClick={() => { setIsHowToUseOpen(true); setIsInfoMenuOpen(false); }} className="menu-opt">
+                    <BookOpen size={14} /> How to Use
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -604,6 +719,7 @@ const App: React.FC = () => {
                     <button className="asset-btn" title="Add PDF / Slides" onClick={() => addFileSource('pdf')}><Presentation size={18} /><span>Slides</span></button>
                     <button className="asset-btn" title="Add Lower Third" onClick={() => addOverlay('lower-third')}><Layers size={18} /><span>Lower</span></button>
                     <button className="asset-btn" title="Add Ticker" onClick={() => addOverlay('ticker')}><Zap size={18} /><span>Ticker</span></button>
+                    <button className="asset-btn" title="Add Headline" onClick={() => addOverlay('headline')}><FileText size={18} /><span>Headline</span></button>
                     <button className="asset-btn" title="Add Logo" onClick={async () => {
                         const path = await (window as any).electron.selectFile({ filters: [{ name: 'Logos', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }] });
                         if (path) addOverlay('logo', path);
@@ -616,7 +732,15 @@ const App: React.FC = () => {
             <section className="dual-monitor-section">
                 <div className="monitor-container preview">
                     <div className="monitor-header">
-                        <span>PREVIEW</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span>PREVIEW</span>
+                            <button className={`icon-btn xs ${showSafeAreas ? 'accent' : ''}`} onClick={() => setShowSafeAreas(!showSafeAreas)} title="Toggle Safe Areas & 9:16 Zone">
+                                <Maximize size={14} />
+                            </button>
+                            <button className={`icon-btn xs ${showGrid ? 'accent' : ''}`} onClick={() => setShowGrid(!showGrid)} title="Toggle Rule of Thirds Grid">
+                                <Grid size={14} />
+                            </button>
+                        </div>
                         <span className="status-tag">STAGING</span>
                     </div>
                     <div className="monitor-view">
@@ -624,12 +748,15 @@ const App: React.FC = () => {
                             sources={previewSources} 
                             overlays={previewOverlays} 
                             interactive={true}
+                            showSafeAreas={showSafeAreas}
+                            showGrid={showGrid}
                             selectedSourceId={selectedSourceId}
                             onSourceUpdate={updateSourceTransform}
                             onSourceSelect={setSelectedSourceId}
                             onSourceMetadata={handleSourceMetadata}
                             onPlaybackUpdate={(id, current, duration) => setPlaybackStatus({ id, currentTime: current, duration })}
                             seekRequest={seekRequest}
+                            micStream={micStreamRef.current}
                         />
                     </div>
                 </div>
@@ -639,7 +766,12 @@ const App: React.FC = () => {
                         <span className="status-tag live">LIVE</span>
                     </div>
                     <div className="monitor-view">
-                        <Composer sources={programSources} overlays={programOverlays} onStreamCreated={handleLiveStreamCreated} />
+                        <Composer 
+                            sources={programSources} 
+                            overlays={programOverlays} 
+                            onStreamCreated={handleLiveStreamCreated} 
+                            micStream={micStreamRef.current}
+                        />
                     </div>
                 </div>
             </section>
@@ -865,35 +997,35 @@ const App: React.FC = () => {
                                                     <SkipForward size={14} />
                                                 </button>
                                             </div>
-
-                                            <div className="volume-control" style={{ marginTop: '16px' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                                                    <Volume2 size={14} />
-                                                    <label className="menu-label" style={{ marginBottom: 0 }}>Volume</label>
-                                                    <span style={{ marginLeft: 'auto', fontSize: '10px', opacity: 0.7 }}>{Math.round((selectedSource.volume ?? 1) * 100)}%</span>
-                                                </div>
-                                                <input 
-                                                    type="range" 
-                                                    className="seeker-bar"
-                                                    min="0" 
-                                                    max="1" 
-                                                    step="0.01"
-                                                    value={selectedSource.volume ?? 1} 
-                                                    onChange={(e) => {
-                                                        const val = parseFloat(e.target.value);
-                                                        const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, volume: val } : s);
-                                                        setPreviewSources(updated);
-                                                        setScenes(scenes.map(sc => sc.id === activeSceneId ? { ...sc, sources: updated } : sc));
-                                                    }}
-                                                />
-                                            </div>
-                                        </div>                                    )}
+                                        </div>
+                                    )}
+                                    
+                                    <div className="volume-control" style={{ marginTop: '16px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                            <Volume2 size={14} />
+                                            <label className="menu-label" style={{ marginBottom: 0 }}>Audio Settings</label>
+                                            <span style={{ marginLeft: 'auto', fontSize: '10px', opacity: 0.7 }}>{Math.round((selectedSource.volume ?? 1) * 100)}%</span>
+                                        </div>
+                                        <input 
+                                            type="range" 
+                                            className="seeker-bar"
+                                            min="0" 
+                                            max="1" 
+                                            step="0.01"
+                                            value={selectedSource.volume ?? 1} 
+                                            onChange={(e) => {
+                                                const val = parseFloat(e.target.value);
+                                                const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, volume: val } : s);
+                                                setPreviewSources(updated);
+                                                setScenes(scenes.map(sc => sc.id === activeSceneId ? { ...sc, sources: updated } : sc));
+                                            }}
+                                        />
+                                    </div>
                                 </div>
                             )}
 
                             <div className="layout-tools" style={{ marginTop: '16px', padding: '0 12px' }}>
-                                <label className="menu-label">Fit & Layout</label>
-                                <div className="editor-grid" style={{ marginTop: '8px', gap: '4px' }}>
+                                <div className="editor-grid" style={{ gap: '4px' }}>
                                     <button className={`btn-mini ${(!selectedSource.fit || selectedSource.fit === 'fill') ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'fill' })}>Stretch</button>
                                     <button className={`btn-mini ${selectedSource.fit === 'cover' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'cover' })}>Cover (Center)</button>
                                     <button className={`btn-mini ${selectedSource.fit === 'contain' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'contain' })}>Contain</button>
@@ -911,86 +1043,181 @@ const App: React.FC = () => {
                                 <div className="editor-field"><label>W</label><input type="number" value={selectedSource.width} onChange={(e) => updateSourceTransform(selectedSource.id, { width: parseInt(e.target.value) || 0 })} /></div>
                                 <div className="editor-field"><label>H</label><input type="number" value={selectedSource.height} onChange={(e) => updateSourceTransform(selectedSource.id, { height: parseInt(e.target.value) || 0 })} /></div>
                             </div>
-                            <button className="btn-ghost" style={{ marginTop: '12px' }} onClick={() => setSelectedSourceId(null)}>Deselect</button>
+                            
+                            <div className="menu-divider" style={{ margin: '16px 12px' }}></div>
+                            <div style={{ padding: '0 12px' }}>
+                                <button className="btn-ghost w-full" onClick={() => setSelectedSourceId(null)}>Deselect Asset</button>
+                            </div>
                         </div>
                     ) : selectedOverlay ? (
-                        <div className="properties-panel-content">
-                            <div className="column-header-with-controls">
-                                <span className="column-title">{selectedOverlay.type.toUpperCase()}</span>
-                            </div>
-                            <div className="column-body">
-                                <div className="editor-grid single">
+                        <>
+                                 <div className="editor-grid single">
                                     <div className="editor-field"><label>Text</label><input type="text" value={selectedOverlay.title} onChange={(e) => updateOverlay(selectedOverlay.id, { title: e.target.value })} /></div>
-                                    {selectedOverlay.type === 'lower-third' && (
+                                    {(selectedOverlay.type === 'lower-third' || selectedOverlay.type === 'headline') && (
                                         <div className="editor-field"><label>Subtitle</label><input type="text" value={selectedOverlay.subtitle} onChange={(e) => updateOverlay(selectedOverlay.id, { subtitle: e.target.value })} /></div>
                                     )}
                                 </div>
 
+                                 <div className="editor-grid" style={{ marginTop: '12px' }}>
+                                     <div className="editor-field">
+                                         <label>Animation</label>
+                                         <select value={selectedOverlay.animation} onChange={(e) => updateOverlay(selectedOverlay.id, { animation: e.target.value as any })}>
+                                             <option value="fade">Fade In</option>
+                                             <option value="slide-left">Slide Left</option>
+                                             <option value="slide-up">Slide Up</option>
+                                         </select>
+                                     </div>
+                                     <div className="editor-field">
+                                         <label>Text Alignment</label>
+                                         <select value={selectedOverlay.style?.textAlign || 'left'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), textAlign: e.target.value as any } })}>
+                                             <option value="left">Left</option>
+                                             <option value="center">Center</option>
+                                             <option value="right">Right</option>
+                                         </select>
+                                     </div>
+                                 </div>
+
+                                 <div className="editor-field" style={{ marginTop: '12px' }}>
+                                     <label>Global Opacity</label>
+                                     <input type="range" className="seeker-bar" min="0.1" max="1" step="0.01" value={selectedOverlay.style?.opacity ?? 1} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), opacity: parseFloat(e.target.value) } })} />
+                                 </div>
+
+                                 <div className="editor-grid" style={{ marginTop: '12px' }}>
+                                     <div className="editor-field">
+                                         <label>Main Font</label>
+                                         <select value={selectedOverlay.style?.fontFamily || 'Outfit, sans-serif'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), fontFamily: e.target.value } })}>
+                                             <option value="Outfit, sans-serif">Outfit (Modern)</option>
+                                             <option value="Inter, sans-serif">Inter (Clean)</option>
+                                             <option value="Roboto, sans-serif">Roboto (Tech)</option>
+                                             <option value="serif">Classic Serif</option>
+                                             <option value="monospace">Monospace</option>
+                                         </select>
+                                     </div>
+                                     {(selectedOverlay.type === 'headline' || selectedOverlay.type === 'lower-third') && (
+                                         <div className="editor-field">
+                                             <label>Sub Font</label>
+                                             <select value={selectedOverlay.style?.subtitleFontFamily || 'Inter, sans-serif'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), subtitleFontFamily: e.target.value } })}>
+                                                 <option value="Inter, sans-serif">Inter (Clean)</option>
+                                                 <option value="Outfit, sans-serif">Outfit (Modern)</option>
+                                                 <option value="Roboto, sans-serif">Roboto (Tech)</option>
+                                                 <option value="serif">Classic Serif</option>
+                                             </select>
+                                         </div>
+                                     )}
+                                 </div>
+
+                                 {selectedOverlay.type === 'lower-third' && (
+                                     <div className="form-group" style={{ marginTop: '12px' }}>
+                                         <label>Style Variant</label>
+                                         <select value={selectedOverlay.variant} onChange={(e) => updateOverlay(selectedOverlay.id, { variant: e.target.value as any })}>
+                                             <option value="classic">Classic Bar</option>
+                                             <option value="modern">Modern Glass</option>
+                                             <option value="minimal">Minimal Floating</option>
+                                         </select>
+                                     </div>
+                                 )}
+
+                                <div className="editor-grid" style={{ marginTop: '12px' }}>
+                                    <div className="editor-field">
+                                        <label>Main Background</label>
+                                        <input type="color" value={selectedOverlay.style?.backgroundColor || '#6366f1'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), backgroundColor: e.target.value } })} />
+                                    </div>
+                                    {(selectedOverlay.type === 'headline' || selectedOverlay.type === 'lower-third') && (
+                                        <div className="editor-field">
+                                            <label>Sub Background</label>
+                                            <input type="color" value={selectedOverlay.style?.subtitleBackgroundColor || '#000000'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), subtitleBackgroundColor: e.target.value } })} />
+                                        </div>
+                                    )}
+                                    <div className="editor-field">
+                                        <label>Accent / Border</label>
+                                        <input type="color" value={selectedOverlay.style?.accentColor || '#0f172a'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), accentColor: e.target.value } })} />
+                                    </div>
+                                </div>
+
+                                <div className="editor-grid" style={{ marginTop: '12px' }}>
+                                    <div className="editor-field">
+                                        <label>Main Text Color</label>
+                                        <input type="color" value={selectedOverlay.style?.color || '#ffffff'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), color: e.target.value } })} />
+                                    </div>
+                                    {(selectedOverlay.type === 'headline' || selectedOverlay.type === 'lower-third') && (
+                                        <div className="editor-field">
+                                            <label>Sub Text Color</label>
+                                            <input type="color" value={selectedOverlay.style?.subtitleColor || '#ffffff'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), subtitleColor: e.target.value } })} />
+                                        </div>
+                                    )}
+                                    <div className="editor-field">
+                                        <label>Show Accent</label>
+                                        <button className={`toggle-btn xs ${selectedOverlay.style?.showAccent !== false ? 'active' : ''}`} onClick={() => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), showAccent: selectedOverlay.style?.showAccent === false } })}>
+                                            {selectedOverlay.style?.showAccent !== false ? 'ON' : 'OFF'}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="editor-grid" style={{ marginTop: '12px' }}>
+                                    <div className="editor-field">
+                                        <label>Main Font Size</label>
+                                        <input type="number" value={selectedOverlay.style?.fontSize || 44} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), fontSize: parseInt(e.target.value) || 44 } })} />
+                                    </div>
+                                    {(selectedOverlay.type === 'headline' || selectedOverlay.type === 'lower-third') && (
+                                        <div className="editor-field">
+                                            <label>Sub Font Size</label>
+                                            <input type="number" value={selectedOverlay.style?.subtitleFontSize || 24} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), subtitleFontSize: parseInt(e.target.value) || 24 } })} />
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="menu-divider" style={{ margin: '16px 0' }}></div>
+                                
+                                {selectedOverlay.type !== 'headline' && selectedOverlay.type !== 'ticker' && selectedOverlay.type !== 'logo' && (
+                                    <div className="editor-grid">
+                                        <div className="editor-field"><label>X</label><input type="number" value={selectedOverlay.x || 0} onChange={(e) => updateOverlay(selectedOverlay.id, { x: parseInt(e.target.value) || 0 })} /></div>
+                                        <div className="editor-field"><label>Y</label><input type="number" value={selectedOverlay.y || 0} onChange={(e) => updateOverlay(selectedOverlay.id, { y: parseInt(e.target.value) || 0 })} /></div>
+                                        <div className="editor-field"><label>W</label><input type="number" value={selectedOverlay.width || 0} onChange={(e) => updateOverlay(selectedOverlay.id, { width: parseInt(e.target.value) || 0 })} /></div>
+                                        <div className="editor-field"><label>H</label><input type="number" value={selectedOverlay.height || 0} onChange={(e) => updateOverlay(selectedOverlay.id, { height: parseInt(e.target.value) || 0 })} /></div>
+                                    </div>
+                                )}
+
                                 {selectedOverlay.type === 'lower-third' && (
-                                    <>
-                                        <div className="editor-grid" style={{ marginTop: '12px' }}>
-                                            <div className="editor-field">
-                                                <label>Main Color</label>
-                                                <input type="color" value={selectedOverlay.style?.backgroundColor || '#6366f1'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), backgroundColor: e.target.value } })} />
-                                            </div>
-                                            <div className="editor-field">
-                                                <label>Accent</label>
-                                                <input type="color" value={selectedOverlay.style?.accentColor || '#0f172a'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), accentColor: e.target.value } })} />
-                                            </div>
+                                    <div style={{ marginTop: '12px' }}>
+                                        <div style={{ fontSize: '11px', fontWeight: 'bold', color: 'var(--tx-2)', margin: '12px 0 8px 0' }}>SUBTITLE OFFSET (CLASSIC)</div>
+                                        <div className="editor-grid">
+                                            <div className="editor-field"><label>X</label><input type="number" value={selectedOverlay.subtitleX || 0} onChange={(e) => updateOverlay(selectedOverlay.id, { subtitleX: parseInt(e.target.value) || 0 })} /></div>
+                                            <div className="editor-field"><label>Y</label><input type="number" value={selectedOverlay.subtitleY || 0} onChange={(e) => updateOverlay(selectedOverlay.id, { subtitleY: parseInt(e.target.value) || 0 })} /></div>
                                         </div>
-                                        <div className="editor-field" style={{ marginTop: '12px' }}>
-                                            <label>Font Size</label>
-                                            <input type="number" value={selectedOverlay.style?.fontSize || 44} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 44, color: '#ffffff', backgroundColor: '#6366f1' }), fontSize: parseInt(e.target.value) || 44 } })} />
-                                        </div>
-                                    </>
+                                    </div>
                                 )}
 
                                 {selectedOverlay.type === 'logo' && (
-                                    <div className="logo-controls" style={{ marginTop: '12px' }}>
+                                    <div className="logo-controls">
                                         <div className="editor-grid">
-                                            <div className="editor-field">
-                                                <label>X Position</label>
-                                                <input type="number" value={selectedOverlay.x || 1700} onChange={(e) => updateOverlay(selectedOverlay.id, { x: parseInt(e.target.value) || 0 })} />
-                                            </div>
-                                            <div className="editor-field">
-                                                <label>Y Position</label>
-                                                <input type="number" value={selectedOverlay.y || 50} onChange={(e) => updateOverlay(selectedOverlay.id, { y: parseInt(e.target.value) || 0 })} />
-                                            </div>
-                                        </div>
-                                        <div className="editor-field" style={{ marginTop: '12px' }}>
-                                            <label>Logo Size</label>
-                                            <input type="range" min="50" max="800" value={selectedOverlay.width || 150} onChange={(e) => updateOverlay(selectedOverlay.id, { width: parseInt(e.target.value), height: parseInt(e.target.value) })} />
+                                            <div className="editor-field"><label>X</label><input type="number" value={selectedOverlay.x ?? 1700} onChange={(e) => updateOverlay(selectedOverlay.id, { x: parseInt(e.target.value) || 0 })} /></div>
+                                            <div className="editor-field"><label>Y</label><input type="number" value={selectedOverlay.y ?? 50} onChange={(e) => updateOverlay(selectedOverlay.id, { y: parseInt(e.target.value) || 0 })} /></div>
+                                            <div className="editor-field"><label>W</label><input type="number" value={selectedOverlay.width ?? 150} onChange={(e) => updateOverlay(selectedOverlay.id, { width: parseInt(e.target.value) || 0 })} /></div>
+                                            <div className="editor-field"><label>H</label><input type="number" value={selectedOverlay.height ?? 150} onChange={(e) => updateOverlay(selectedOverlay.id, { height: parseInt(e.target.value) || 0 })} /></div>
                                         </div>
                                     </div>
                                 )}
 
                                 {selectedOverlay.type === 'ticker' && (
-                                    <div className="ticker-controls" style={{ marginTop: '12px' }}>
-                                        <div className="editor-field">
+                                    <div className="ticker-controls">
+                                        <div className="editor-grid">
+                                            <div className="editor-field"><label>Vertical Position</label><input type="number" value={selectedOverlay.y || 1030} onChange={(e) => updateOverlay(selectedOverlay.id, { y: parseInt(e.target.value) || 0 })} /></div>
+                                            <div className="editor-field"><label>Bar Height</label><input type="number" value={selectedOverlay.height || 50} onChange={(e) => updateOverlay(selectedOverlay.id, { height: parseInt(e.target.value) || 0 })} /></div>
+                                        </div>
+                                        <div className="editor-field" style={{ marginTop: '12px' }}>
                                             <label>Scroll Speed</label>
-                                            <input 
-                                                type="range" 
-                                                className="seeker-bar"
-                                                min="1" 
-                                                max="20" 
-                                                value={selectedOverlay.speed || 3} 
-                                                onChange={(e) => updateOverlay(selectedOverlay.id, { speed: parseInt(e.target.value) })}
-                                            />
+                                            <input type="range" className="seeker-bar" min="1" max="20" value={selectedOverlay.speed || 3} onChange={(e) => updateOverlay(selectedOverlay.id, { speed: parseInt(e.target.value) })} />
                                         </div>
                                         <div className="editor-grid" style={{ marginTop: '12px' }}>
-                                            <div className="editor-field">
-                                                <label>Text Color</label>
-                                                <input type="color" value={selectedOverlay.style?.color || '#ffffff'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 24, color: '#ffffff', backgroundColor: 'rgba(15, 23, 42, 0.95)' }), color: e.target.value } })} />
-                                            </div>
-                                            <div className="editor-field">
-                                                <label>Background</label>
-                                                <input type="color" value={selectedOverlay.style?.backgroundColor || '#0f172a'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 24, color: '#ffffff', backgroundColor: 'rgba(15, 23, 42, 0.95)' }), backgroundColor: e.target.value } })} />
-                                            </div>
+                                            <div className="editor-field"><label>Text Color</label><input type="color" value={selectedOverlay.style?.color || '#ffffff'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 24, color: '#ffffff', backgroundColor: '#0f172a' }), color: e.target.value } })} /></div>
+                                            <div className="editor-field"><label>Background</label><input type="color" value={selectedOverlay.style?.backgroundColor || '#0f172a'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 24, color: '#ffffff', backgroundColor: '#0f172a' }), backgroundColor: e.target.value } })} /></div>
                                         </div>
                                     </div>
                                 )}
-                            </div>
-                        </div>
+
+                                <div className="menu-divider" style={{ margin: '16px 0' }}></div>
+                                <button className="btn-ghost w-full" onClick={() => setSelectedOverlayId(null)}>Deselect Overlay</button>
+                        </>
                     ) : (
                         <div className="empty-state">
                             <MousePointer2 size={32} />
@@ -1129,6 +1356,67 @@ const App: React.FC = () => {
                     <p style={{ margin: '0 0 8px 0', fontSize: '14px', lineHeight: '1.5' }}>4. Click Cut or Fade (or press Enter) to send to Program.</p>
                     <p style={{ margin: '0 0 8px 0', fontSize: '14px', lineHeight: '1.5' }}>5. Use Go Live or Record to start broadcasting.</p>
                 </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isHowToUseOpen && (
+        <div className="modal-overlay">
+          <div className="modal-box settings" style={{ width: '600px', maxWidth: '90vw' }}>
+            <div className="modal-head">
+                <h2>How to Use Strima</h2>
+                <button onClick={() => setIsHowToUseOpen(false)} className="icon-btn"><X size={20} /></button>
+            </div>
+            <div className="modal-form" style={{ padding: '0 20px 20px 20px', maxHeight: '70vh', overflowY: 'auto' }}>
+                <div className="guide-section">
+                    <h3 style={{ color: 'var(--accent)', marginTop: '20px' }}>1. Working with Scenes & Assets</h3>
+                    <p style={{ color: 'var(--tx-1)', fontSize: '14px', lineHeight: '1.6' }}>
+                        Start by creating **Scenes** on the bottom left. Each scene is a unique layout. Use the **Assets** sidebar to add 
+                        Screens, Cameras, Videos, or Images. Once added, click a source to see its **Properties** where you can 
+                        adjust its position, volume, and style.
+                    </p>
+                </div>
+                
+                <div className="guide-section">
+                    <h3 style={{ color: 'var(--accent)', marginTop: '20px' }}>2. Graphics & Overlays</h3>
+                    <p style={{ color: 'var(--tx-1)', fontSize: '14px', lineHeight: '1.6' }}>
+                        Strima features pro-grade overlays. Add **Lower Thirds** for speaker info, **Headlines** for main topics, 
+                        and **Tickers** for scrolling news. Use the Properties panel to choose between **Classic**, **Modern**, 
+                        and **Minimal** styles, and set professional **Entry Animations** like Fade or Slide.
+                    </p>
+                </div>
+
+                <div className="guide-section">
+                    <h3 style={{ color: 'var(--accent)', marginTop: '20px' }}>3. The Staging Workflow</h3>
+                    <p style={{ color: 'var(--tx-1)', fontSize: '14px', lineHeight: '1.6' }}>
+                        Strima uses a professional **Dual-Monitor** workflow. The **PREVIEW** monitor on the left shows what 
+                        you are currently editing. Use the **CUT** or **FADE** buttons (or press **Enter**) to push your changes 
+                        to the **PROGRAM** monitor on the right. Only content in the PROGRAM monitor is sent to your stream or recording.
+                    </p>
+                </div>
+
+                <div className="guide-section">
+                    <h3 style={{ color: 'var(--accent)', marginTop: '20px' }}>4. Broadcasting & Recording</h3>
+                    <p style={{ color: 'var(--tx-1)', fontSize: '14px', lineHeight: '1.6' }}>
+                        Go to **Settings** to enter your RTMP URL and Stream Key. You can select your preferred bitrate 
+                        depending on your internet speed. Once ready, click **Go Live** to start streaming or **Record** 
+                        to save your production to a high-quality video file on your computer.
+                    </p>
+                </div>
+
+                <div className="guide-section">
+                  <h3 style={{ color: 'var(--accent)', marginTop: '20px' }}>5. Expert Tips</h3>
+                  <ul style={{ color: 'var(--tx-2)', fontSize: '13px', lineHeight: '1.8', paddingLeft: '20px' }}>
+                    <li>Use <strong>Framing Guidelines</strong> (Grid & Safe Areas) to align your shots perfectly.</li>
+                    <li>The <strong>9:16 Social Zone</strong> helps you ensure content is visible for mobile viewers.</li>
+                    <li>Toggle the <strong>Microphone</strong> in the header to add live commentary.</li>
+                    <li>Enable <strong>Auto-save</strong> in Settings to never lose your scene layouts.</li>
+                  </ul>
+                </div>
+            </div>
+            <div className="modal-foot">
+                <button className="btn-primary" onClick={() => setIsHowToUseOpen(false)}>Got it!</button>
             </div>
           </div>
         </div>
