@@ -43,7 +43,24 @@ export class FFmpegManager {
       args.push('-y', finalPath);
     }
 
-    const ffmpegPath = ffmpeg?.replace('app.asar', 'app.asar.unpacked') || 'ffmpeg';
+    let ffmpegPath = ffmpeg || 'ffmpeg';
+    const possiblePaths = [
+        ffmpegPath,
+        path.join(app.getAppPath(), 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+        path.join(process.cwd(), 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+        path.join(__dirname, '..', '..', 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+        'ffmpeg' // System fallback
+    ];
+
+    for (const p of possiblePaths) {
+        if (p && fs.existsSync(p)) {
+            ffmpegPath = p;
+            break;
+        }
+    }
+    
+    ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
+    
     console.log('Starting FFmpeg from:', ffmpegPath, 'with args:', args.join(' '));
     this.ffmpegProcess = spawn(ffmpegPath, args);
 
