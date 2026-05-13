@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, ChevronLeft, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward, HelpCircle, Info, MousePointer2, ExternalLink, BookOpen, Check } from 'lucide-react';
 import Composer from './components/Composer';
 
@@ -92,11 +92,8 @@ const App: React.FC = () => {
   const [scenes, setScenes] = useState<Scene[]>([
     { id: 'scene-1', name: 'Main Scene', sources: [], overlays: [] }
   ]);
-  const [streamingConfig, setStreamingConfig] = useState<StreamingConfig>({
-    rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2',
-    streamKey: '',
-    bitrate: 6000
-  });
+  const [showStreamKey, setShowStreamKey] = useState(false);
+  const [streamingConfig, setStreamingConfig] = useState({ rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2', streamKey: '', bitrate: 4000 });
   
   const [activeSceneId, setActiveSceneId] = useState('scene-1');
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -515,9 +512,9 @@ const App: React.FC = () => {
 
   const executeTransition = () => { setProgramSources([...previewSources]); setProgramOverlays([...previewOverlays]); };
 
-  const handleLiveStreamCreated = (stream: MediaStream) => {
+  const handleLiveStreamCreated = useCallback((stream: MediaStream) => {
     composerStreamRef.current = stream;
-  };
+  }, []);
 
   const startStreaming = async () => {
     if (!composerStreamRef.current) {
@@ -1307,9 +1304,27 @@ const App: React.FC = () => {
                     </div>
                 </div>
                 <div className="form-group">
-                    <label>Stream Key</label>
-                    <input type="password" value={streamingConfig.streamKey} onChange={(e) => setStreamingConfig({ ...streamingConfig, streamKey: e.target.value })} />
-                    <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '11px', padding: '8px', background: 'var(--bg-3)', borderRadius: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <label style={{ margin: 0 }}>Stream Key</label>
+                        <button className="icon-btn xs" onClick={() => setShowStreamKey(!showStreamKey)} title={showStreamKey ? 'Hide Key' : 'Show Key'}>
+                            {showStreamKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                    </div>
+                    <div className="input-with-icon" style={{ position: 'relative' }}>
+                        <input 
+                            type={showStreamKey ? 'text' : 'password'} 
+                            value={streamingConfig.streamKey} 
+                            onChange={(e) => setStreamingConfig({ ...streamingConfig, streamKey: e.target.value })} 
+                            style={{ width: '100%' }}
+                        />
+                    </div>
+                    <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '11px', padding: '10px', background: 'var(--bg-3)', borderRadius: '6px' }}>
+                        <span style={{ color: 'var(--tx-2)', fontWeight: '600', width: '100%', marginBottom: '4px' }}>Quick Presets (Click to set URL):</span>
+                        <button className="btn-mini secondary" style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => setStreamingConfig({ ...streamingConfig, rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2' })}>YouTube</button>
+                        <button className="btn-mini secondary" style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => setStreamingConfig({ ...streamingConfig, rtmpUrl: 'rtmp://live.twitch.tv/app/' })}>Twitch</button>
+                        <button className="btn-mini secondary" style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => setStreamingConfig({ ...streamingConfig, rtmpUrl: 'rtmp://rtmp-api.facebook.com:80/rtmp/' })}>Facebook</button>
+                    </div>
+                    <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '11px', padding: '8px', opacity: 0.7 }}>
                         <span style={{ color: 'var(--tx-2)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
                             <Globe size={12} /> Get Keys:
                         </span>

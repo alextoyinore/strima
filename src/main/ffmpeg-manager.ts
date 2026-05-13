@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import { app, ipcMain } from 'electron';
 import fs from 'fs';
 import path from 'path';
+import ffmpeg from 'ffmpeg-static';
 
 export class FFmpegManager {
   private ffmpegProcess: ChildProcess | null = null;
@@ -17,19 +18,24 @@ export class FFmpegManager {
     const bitrate = options.bitrate || 6000;
 
     const args = [
-      '-i', 'pipe:0', // Read from stdin
+      '-i', 'pipe:0', 
       '-vcodec', 'libx264',
       '-preset', 'ultrafast',
+      '-tune', 'zerolatency',
       '-maxrate', `${bitrate}k`,
       '-bufsize', `${bitrate * 2}k`,
       '-pix_fmt', 'yuv420p',
       '-g', '60', 
+      '-x264-params', 'keyint=60:min-keyint=60:scenecut=0',
       '-c:a', 'aac',
       '-b:a', '128k',
       '-ar', '44100',
-      '-movflags', '+faststart',
       '-f', options.isStreaming ? 'flv' : 'mp4',
     ];
+
+    if (!options.isStreaming) {
+        args.splice(args.indexOf('-f') - 1, 0, '-movflags', '+faststart');
+    }
 
     if (options.isStreaming && options.streamUrl) {
       args.push(options.streamUrl);
@@ -37,8 +43,9 @@ export class FFmpegManager {
       args.push('-y', finalPath);
     }
 
-    console.log('Starting FFmpeg with args:', args.join(' '));
-    this.ffmpegProcess = spawn('ffmpeg', args);
+    const ffmpegPath = ffmpeg?.replace('app.asar', 'app.asar.unpacked') || 'ffmpeg';
+    console.log('Starting FFmpeg from:', ffmpegPath, 'with args:', args.join(' '));
+    this.ffmpegProcess = spawn(ffmpegPath, args);
 
     this.ffmpegProcess.on('error', (err) => {
       console.error('FFmpeg process error:', err);

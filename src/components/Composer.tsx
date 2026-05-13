@@ -124,14 +124,20 @@ const Composer: React.FC<ComposerProps> = ({
   }, []);
 
   useEffect(() => {
+    let combinedStream: MediaStream | null = null;
     if (canvasRef.current && audioDestination.current && onStreamCreated) {
         const canvasStream = canvasRef.current.captureStream(30);
-        const combinedStream = new MediaStream([
+        combinedStream = new MediaStream([
             ...canvasStream.getVideoTracks(),
             ...audioDestination.current.stream.getAudioTracks()
         ]);
         onStreamCreated(combinedStream);
     }
+    return () => {
+        if (combinedStream) {
+            combinedStream.getTracks().forEach(t => t.stop());
+        }
+    };
   }, [onStreamCreated]);
 
   useEffect(() => {
