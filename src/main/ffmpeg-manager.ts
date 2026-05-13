@@ -1,14 +1,16 @@
-import { spawn, ChildProcess } from 'child_process';
 import { app, ipcMain } from 'electron';
-import fs from 'fs';
 import path from 'path';
-import ffmpeg from 'ffmpeg-static';
+import ffmpeg from 'fluent-ffmpeg';
+import { PassThrough } from 'stream';
 
 export class FFmpegManager {
-  private ffmpegProcess: ChildProcess | null = null;
+  private command: ffmpeg.FfmpegCommand | null = null;
+  private inputStream: PassThrough | null = null;
 
   start(outputPath: string, options: { isStreaming: boolean; streamUrl?: string; bitrate?: number }) {
-    if (this.ffmpegProcess) return;
+    if (this.command) return;
+
+    this.inputStream = new PassThrough();
 
     let finalPath = outputPath;
     if (!options.isStreaming && !path.isAbsolute(outputPath)) {
@@ -16,77 +18,74 @@ export class FFmpegManager {
     }
 
     const bitrate = options.bitrate || 6000;
+    const output = (options.isStreaming && options.streamUrl) ? options.streamUrl : finalPath;
 
-    const args = [
-      '-i', 'pipe:0', 
-      '-vcodec', 'libx264',
-      '-preset', 'ultrafast',
-      '-tune', 'zerolatency',
-      '-maxrate', `${bitrate}k`,
-      '-bufsize', `${bitrate * 2}k`,
-      '-pix_fmt', 'yuv420p',
-      '-g', '60', 
-      '-x264-params', 'keyint=60:min-keyint=60:scenecut=0',
-      '-c:a', 'aac',
-      '-b:a', '128k',
-      '-ar', '44100',
-      '-f', options.isStreaming ? 'flv' : 'mp4',
-    ];
+    console.log('Starting FFmpeg for:', options.isStreaming ? 'Streaming' : 'Recording');
+    
+    this.command = ffmpeg(this.inputStream)
+      .inputFormat('webm')
+      .videoCodec('libx264')
+      .addOptions([
+        '-preset ultrafast',
+        '-tune zerolatency',
+        `-maxrate ${bitrate}k`,
+        `-bufsize ${bitrate * 2}k`,
+        '-pix_fmt yuv420p',
+        '-g 60',
+        '-x264-params keyint=60:min-keyint=60:scenecut=0',
+        '-r 30'
+      ])
+      .audioCodec('aac')
+      .audioBitrate('128k')
+      .audioFrequency(44100)
+      .format(options.isStreaming ? 'flv' : 'mp4');
 
-    if (!options.isStreaming) {
-        args.splice(args.indexOf('-f') - 1, 0, '-movflags', '+faststart');
-    }
-
-    if (options.isStreaming && options.streamUrl) {
-      args.push(options.streamUrl);
+    if (options.isStreaming) {
+      this.command.addOutputOptions([
+        '-flvflags no_duration_filesize',
+        '-f flv'
+      ]);
     } else {
-      args.push('-y', finalPath);
+      this.command.addOutputOptions('-movflags +faststart');
     }
 
-    let ffmpegPath = ffmpeg || 'ffmpeg';
-    const possiblePaths = [
-        ffmpegPath,
-        path.join(app.getAppPath(), 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
-        path.join(process.cwd(), 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
-        path.join(__dirname, '..', '..', 'node_modules', 'ffmpeg-static', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
-        'ffmpeg' // System fallback
-    ];
-
-    for (const p of possiblePaths) {
-        if (p && fs.existsSync(p)) {
-            ffmpegPath = p;
-            break;
+    this.command
+      .on('start', (commandLine) => {
+        console.log('Spawned FFmpeg with command:', commandLine);
+      })
+      .on('stderr', (stderrLine) => {
+        // Log FFmpeg output for debugging
+        if (stderrLine.includes('Error') || stderrLine.includes('failed')) {
+          console.error('FFmpeg Log:', stderrLine);
         }
-    }
-    
-    ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
-    
-    console.log('Starting FFmpeg from:', ffmpegPath, 'with args:', args.join(' '));
-    this.ffmpegProcess = spawn(ffmpegPath, args);
+      })
+      .on('error', (err, stdout, stderr) => {
+        console.error('FFmpeg process error:', err.message);
+        console.error('FFmpeg stderr:', stderr);
+        this.cleanup();
+      })
+      .on('end', () => {
+        console.log('FFmpeg process finished');
+        this.cleanup();
+      })
+      .save(output);
 
-    this.ffmpegProcess.on('error', (err) => {
-      console.error('FFmpeg process error:', err);
-    });
+  }
 
-    this.ffmpegProcess.stderr?.on('data', (data) => {
-      // console.log('FFmpeg stderr:', data.toString());
-    });
-
-    this.ffmpegProcess.on('close', (code) => {
-      console.log(`FFmpeg process exited with code ${code}`);
-      this.ffmpegProcess = null;
-    });
+  private cleanup() {
+    this.command = null;
+    this.inputStream = null;
   }
 
   write(chunk: Buffer) {
-    if (this.ffmpegProcess && this.ffmpegProcess.stdin) {
-      this.ffmpegProcess.stdin.write(chunk);
+    if (this.inputStream) {
+      this.inputStream.write(chunk);
     }
   }
 
   stop() {
-    if (this.ffmpegProcess && this.ffmpegProcess.stdin) {
-      this.ffmpegProcess.stdin.end();
+    if (this.inputStream) {
+      this.inputStream.end();
     }
   }
 }

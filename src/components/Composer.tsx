@@ -495,7 +495,7 @@ const Composer: React.FC<ComposerProps> = ({
             if (s.showAccent !== false) {
               ctx.fillStyle = s.subtitleBackgroundColor || s.accentColor || 'rgba(15, 23, 42, 0.9)'; 
               ctx.fillRect(sX, sY, sW, sH);
-              ctx.fillStyle = s.color; ctx.font = `${Math.round(s.fontSize * 0.5)}px ${subFont}`; 
+              ctx.fillStyle = s.subtitleColor || s.color; ctx.font = `${Math.round(s.fontSize * 0.5)}px ${subFont}`; 
               const subTextX = align === 'left' ? sX + 40 : (align === 'right' ? sX + sW - 40 : sX + sW / 2);
               ctx.fillText(overlay.subtitle.toUpperCase(), subTextX, sY + sH * 0.7);
             }
@@ -510,7 +510,7 @@ const Composer: React.FC<ComposerProps> = ({
             ctx.fillStyle = s.color; ctx.font = `bold ${s.fontSize}px ${mainFont}`; ctx.textAlign = align;
             const textX = align === 'left' ? oX + 30 : (align === 'right' ? oX + oW - 30 : oX + oW / 2);
             ctx.fillText(overlay.title, textX, oY + (oH + 20) * 0.45);
-            ctx.fillStyle = s.color; ctx.globalAlpha = 0.7 * opacity; ctx.font = `${Math.round(s.fontSize * 0.6)}px ${subFont}`; 
+            ctx.fillStyle = s.subtitleColor || s.color; ctx.globalAlpha = 0.7 * opacity; ctx.font = `${Math.round(s.fontSize * 0.6)}px ${subFont}`; 
             ctx.fillText(overlay.subtitle, textX, oY + (oH + 20) * 0.8);
           } else if (variant === 'minimal') {
             const tw = ctx.measureText(overlay.title).width + 80;
@@ -519,7 +519,7 @@ const Composer: React.FC<ComposerProps> = ({
             ctx.fillStyle = s.color; ctx.font = `500 ${s.fontSize}px ${mainFont}`; ctx.textAlign = align;
             const textX = align === 'left' ? mX + 40 : (align === 'right' ? mX + tw - 40 : mX + tw/2);
             ctx.fillText(overlay.title, textX, oY + 85);
-            ctx.fillStyle = s.accentColor || '#fff'; ctx.font = `bold ${Math.round(s.fontSize * 0.4)}px ${subFont}`; ctx.fillText(overlay.subtitle.toUpperCase(), textX, oY + 20);
+            ctx.fillStyle = s.subtitleColor || s.accentColor || '#fff'; ctx.font = `bold ${Math.round(s.fontSize * 0.4)}px ${subFont}`; ctx.fillText(overlay.subtitle.toUpperCase(), textX, oY + 20);
           }
         }
 

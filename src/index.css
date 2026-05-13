@@ -78,7 +78,7 @@ body {
   -webkit-app-region: drag;
 }
 
-.brand-icon { color: var(--accent-solid); }
+.brand-icon { color: var(--tx-2); }
 .app-title {
   font-family: 'Outfit', sans-serif;
   font-size: 10px;
