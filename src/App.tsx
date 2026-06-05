@@ -93,7 +93,7 @@ const App: React.FC = () => {
     { id: 'scene-1', name: 'Main Scene', sources: [], overlays: [] }
   ]);
   const [showStreamKey, setShowStreamKey] = useState(false);
-  const [streamingConfig, setStreamingConfig] = useState({ rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2', streamKey: '', bitrate: 4000 });
+  const [streamingConfig, setStreamingConfig] = useState({ rtmpUrl: 'rtmps://a.rtmp.youtube.com/live2', streamKey: '', bitrate: 4000 });
   
   const [activeSceneId, setActiveSceneId] = useState('scene-1');
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -109,6 +109,7 @@ const App: React.FC = () => {
   
   const [isStreaming, setIsStreaming] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isRecordingPaused, setIsRecordingPaused] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string, type: 'error' | 'success' | 'info' } | null>(null);
   
   const showStatus = (text: string, type: 'error' | 'success' | 'info' = 'info') => {
@@ -516,6 +517,23 @@ const App: React.FC = () => {
     composerStreamRef.current = stream;
   }, []);
 
+  const getBestSupportedMimeType = () => {
+    const types = [
+      'video/webm;codecs=h264',
+      'video/webm;codecs=vp9,opus',
+      'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=vp9',
+      'video/webm;codecs=vp8',
+      'video/webm'
+    ];
+    for (const t of types) {
+      if (MediaRecorder.isTypeSupported(t)) {
+        return t;
+      }
+    }
+    return 'video/webm';
+  };
+
   const startStreaming = async () => {
     if (!composerStreamRef.current) {
         showStatus('Engine not ready. Try again in a moment.', 'error');
@@ -529,17 +547,26 @@ const App: React.FC = () => {
     setIsStreaming(true);
     showStatus('Connecting to stream...', 'info');
     try {
+        const baseUrl = streamingConfig.rtmpUrl.trim();
+        const normalizedUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+        const fullStreamUrl = `${normalizedUrl}${streamingConfig.streamKey.trim()}`;
+
         await window.electron.startFFmpeg({ 
           isStreaming: true, 
-          streamUrl: `${streamingConfig.rtmpUrl}/${streamingConfig.streamKey}`,
+          streamUrl: fullStreamUrl,
           bitrate: streamingConfig.bitrate
         });
-        const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: 'video/webm;codecs=h264', videoBitsPerSecond: 6000000 });
+
+        const mime = getBestSupportedMimeType();
+        console.log('Starting MediaRecorder for streaming with mimeType:', mime);
+
+        const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: mime, videoBitsPerSecond: 6000000 });
         recorder.ondataavailable = async (e) => { if (e.data.size > 0) window.electron.sendChunk(await e.data.arrayBuffer()); };
         recorder.start(1000);
         mediaRecorderRef.current = recorder;
         showStatus('Live!', 'success');
     } catch (e) {
+        console.error('Streaming failed to start:', e);
         showStatus('Streaming failed to start.', 'error');
         setIsStreaming(false);
     }
@@ -553,15 +580,20 @@ const App: React.FC = () => {
         return;
     }
     setIsRecording(true);
+    setIsRecordingPaused(false);
     showStatus('Starting recording...', 'info');
     try {
         await window.electron.startFFmpeg({ outputPath: `recording-${Date.now()}.mp4`, isStreaming: false });
-        const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: 'video/webm;codecs=h264', videoBitsPerSecond: 5000000 });
+        const mime = getBestSupportedMimeType();
+        console.log('Starting MediaRecorder for recording with mimeType:', mime);
+
+        const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: mime, videoBitsPerSecond: 5000000 });
         recorder.ondataavailable = async (e) => { if (e.data.size > 0) window.electron.sendChunk(await e.data.arrayBuffer()); };
         recorder.start(1000);
         mediaRecorderRef.current = recorder;
         showStatus('Recording Started', 'success');
     } catch (e) {
+        console.error('Recording failed to start:', e);
         showStatus('Recording failed to start.', 'error');
         setIsRecording(false);
     }
@@ -569,12 +601,29 @@ const App: React.FC = () => {
 
   const stopRecording = async () => { 
     setIsRecording(false); 
+    setIsRecordingPaused(false);
     if (mediaRecorderRef.current) { 
         mediaRecorderRef.current.stop(); 
         mediaRecorderRef.current = null; 
     } 
     await window.electron.stopFFmpeg();
     showStatus('Recording saved to Videos folder', 'success');
+  };
+
+  const pauseRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+        mediaRecorderRef.current.pause();
+        setIsRecordingPaused(true);
+        showStatus('Recording Paused', 'info');
+    }
+  };
+
+  const resumeRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+        mediaRecorderRef.current.resume();
+        setIsRecordingPaused(false);
+        showStatus('Recording Resumed', 'success');
+    }
   };
 
   const themeMenuRef = useRef<HTMLDivElement>(null);
@@ -622,10 +671,23 @@ const App: React.FC = () => {
                 {isStreaming ? <Square size={14} /> : <Radio size={14} />}
                 <span>{isStreaming ? 'Stop Stream' : 'Go Live'}</span>
               </button>
-              <button className={`btn-mini ${isRecording ? 'recording' : 'secondary'}`} onClick={isRecording ? stopRecording : startRecording}>
-                {isRecording ? <Square size={14} /> : <Play size={14} />}
-                <span>{isRecording ? 'Stop Rec' : 'Record'}</span>
-              </button>
+              {!isRecording ? (
+                <button className="btn-mini secondary" onClick={startRecording}>
+                  <Play size={14} />
+                  <span>Record</span>
+                </button>
+              ) : (
+                <>
+                  <button className={`btn-mini ${isRecordingPaused ? 'secondary' : 'recording'}`} onClick={stopRecording}>
+                    <Square size={14} />
+                    <span>Stop Rec</span>
+                  </button>
+                  <button className={`btn-mini ${isRecordingPaused ? 'primary' : 'secondary'}`} onClick={isRecordingPaused ? resumeRecording : pauseRecording}>
+                    {isRecordingPaused ? <Play size={14} /> : <Pause size={14} />}
+                    <span>{isRecordingPaused ? 'Resume' : 'Pause'}</span>
+                  </button>
+                </>
+              )}
             </div>
         </div>
         <div className="header-right">
@@ -1165,7 +1227,7 @@ const App: React.FC = () => {
 
                                 <div className="menu-divider" style={{ margin: '16px 0' }}></div>
                                 
-                                {selectedOverlay.type !== 'headline' && selectedOverlay.type !== 'ticker' && selectedOverlay.type !== 'logo' && (
+                                {selectedOverlay.type !== 'logo' && (
                                     <div className="editor-grid">
                                         <div className="editor-field"><label>X</label><input type="number" value={selectedOverlay.x || 0} onChange={(e) => updateOverlay(selectedOverlay.id, { x: parseInt(e.target.value) || 0 })} /></div>
                                         <div className="editor-field"><label>Y</label><input type="number" value={selectedOverlay.y || 0} onChange={(e) => updateOverlay(selectedOverlay.id, { y: parseInt(e.target.value) || 0 })} /></div>
@@ -1197,10 +1259,6 @@ const App: React.FC = () => {
 
                                 {selectedOverlay.type === 'ticker' && (
                                     <div className="ticker-controls">
-                                        <div className="editor-grid">
-                                            <div className="editor-field"><label>Vertical Position</label><input type="number" value={selectedOverlay.y || 1030} onChange={(e) => updateOverlay(selectedOverlay.id, { y: parseInt(e.target.value) || 0 })} /></div>
-                                            <div className="editor-field"><label>Bar Height</label><input type="number" value={selectedOverlay.height || 50} onChange={(e) => updateOverlay(selectedOverlay.id, { height: parseInt(e.target.value) || 0 })} /></div>
-                                        </div>
                                         <div className="editor-field" style={{ marginTop: '12px' }}>
                                             <label>Scroll Speed</label>
                                             <input type="range" className="seeker-bar" min="1" max="20" value={selectedOverlay.speed || 3} onChange={(e) => updateOverlay(selectedOverlay.id, { speed: parseInt(e.target.value) })} />
@@ -1320,9 +1378,9 @@ const App: React.FC = () => {
                     </div>
                     <div style={{ marginTop: '12px', display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '11px', padding: '10px', background: 'var(--bg-3)', borderRadius: '6px' }}>
                         <span style={{ color: 'var(--tx-2)', fontWeight: '600', width: '100%', marginBottom: '4px' }}>Quick Presets (Click to set URL):</span>
-                        <button className="btn-mini secondary" style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => setStreamingConfig({ ...streamingConfig, rtmpUrl: 'rtmp://a.rtmp.youtube.com/live2' })}>YouTube</button>
-                        <button className="btn-mini secondary" style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => setStreamingConfig({ ...streamingConfig, rtmpUrl: 'rtmp://live.twitch.tv/app/' })}>Twitch</button>
-                        <button className="btn-mini secondary" style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => setStreamingConfig({ ...streamingConfig, rtmpUrl: 'rtmp://rtmp-api.facebook.com:80/rtmp/' })}>Facebook</button>
+                        <button className="btn-mini secondary" style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => setStreamingConfig({ ...streamingConfig, rtmpUrl: 'rtmps://a.rtmp.youtube.com/live2' })}>YouTube</button>
+                        <button className="btn-mini secondary" style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => setStreamingConfig({ ...streamingConfig, rtmpUrl: 'rtmps://live.twitch.tv/app/' })}>Twitch</button>
+                        <button className="btn-mini secondary" style={{ fontSize: '10px', padding: '4px 8px' }} onClick={() => setStreamingConfig({ ...streamingConfig, rtmpUrl: 'rtmps://rtmp-api.facebook.com:443/rtmp/' })}>Facebook</button>
                     </div>
                     <div style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '11px', padding: '8px', opacity: 0.7 }}>
                         <span style={{ color: 'var(--tx-2)', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
