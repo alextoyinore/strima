@@ -1,6 +1,6 @@
 {
   "name": "strima",
-  "productName": "strima",
+  "productName": "Strima",
   "version": "1.0.0",
   "description": "Simple easy to use live streaming app",
   "main": ".vite/build/main.js",

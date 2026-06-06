@@ -283,7 +283,10 @@ const App: React.FC = () => {
       setIsMicEnabled(false);
     } else {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const audioConstraints = selectedMicId && selectedMicId !== 'default'
+            ? { deviceId: { exact: selectedMicId } }
+            : true;
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
         micStreamRef.current = stream;
         setIsMicEnabled(true);
       } catch (e) { alert('Mic access denied'); }

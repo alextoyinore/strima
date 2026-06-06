@@ -125,6 +125,27 @@ const Composer: React.FC<ComposerProps> = ({
     }
   }, []);
 
+  // Resume AudioContext on any user interaction
+  useEffect(() => {
+    const resumeAudio = () => {
+      if (audioContext.current && audioContext.current.state === 'suspended') {
+        audioContext.current.resume()
+          .then(() => console.log('AudioContext resumed successfully via user interaction.'))
+          .catch(e => console.error('Failed to resume AudioContext:', e));
+      }
+    };
+
+    window.addEventListener('click', resumeAudio);
+    window.addEventListener('keydown', resumeAudio);
+    window.addEventListener('touchstart', resumeAudio);
+
+    return () => {
+      window.removeEventListener('click', resumeAudio);
+      window.removeEventListener('keydown', resumeAudio);
+      window.removeEventListener('touchstart', resumeAudio);
+    };
+  }, []);
+
   useEffect(() => {
     let combinedStream: MediaStream | null = null;
     if (canvasRef.current && audioDestination.current && onStreamCreated) {
@@ -137,7 +158,9 @@ const Composer: React.FC<ComposerProps> = ({
     }
     return () => {
         if (combinedStream) {
-            combinedStream.getTracks().forEach(t => t.stop());
+            // Only stop the video tracks captured from the canvas.
+            // Preserving the audio destination track prevents permanently disabling the audio mix bus.
+            combinedStream.getVideoTracks().forEach(t => t.stop());
         }
     };
   }, [onStreamCreated]);
@@ -246,9 +269,17 @@ const Composer: React.FC<ComposerProps> = ({
                     audio: audioConstraints 
                 });
             } else {
+                const isScreen = source.type === 'screen';
+                const audioConstraints = isScreen ? {
+                    mandatory: {
+                        chromeMediaSource: 'desktop',
+                        chromeMediaSourceId: source.id
+                    }
+                } : false;
+
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: source.id, minWidth: 1280, maxWidth: 1920, minHeight: 720, maxHeight: 1080 } } as any,
-                    audio: { mandatory: { chromeMediaSource: 'desktop' } } as any
+                    audio: audioConstraints as any
                 });
             }
             const video = document.createElement('video');
@@ -268,7 +299,9 @@ const Composer: React.FC<ComposerProps> = ({
                 gainNode.gain.value = source.volume ?? 1.0;
                 sourceNode.connect(gainNode);
                 gainNode.connect(audioDestination.current);
-                gainNode.connect(audioContext.current.destination);
+                if (source.type !== 'screen' && source.type !== 'window' && source.type !== 'camera') {
+                    gainNode.connect(audioContext.current.destination);
+                }
                 audioNodes.current[source.id] = { source: sourceNode, gain: gainNode };
             }
           } catch (e) { console.error('Source error:', e); }
@@ -349,7 +382,6 @@ const Composer: React.FC<ComposerProps> = ({
         gainNode.gain.value = 1.0;
         sourceNode.connect(gainNode);
         gainNode.connect(audioDestination.current);
-        gainNode.connect(audioContext.current.destination);
         micNode.current = { source: sourceNode, gain: gainNode };
     } else if (!micStream && micNode.current) {
         micNode.current.source.disconnect();

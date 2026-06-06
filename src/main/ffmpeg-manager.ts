@@ -7,9 +7,45 @@ import fs from 'fs';
 export class FFmpegManager {
   private command: ffmpeg.FfmpegCommand | null = null;
   private inputStream: PassThrough | null = null;
+  private ffmpegPathSet = false;
+
+  private resolveFFmpegPath() {
+    if (this.ffmpegPathSet) return;
+    
+    let ffmpegPath = '';
+    const isWin = process.platform === 'win32';
+    const exeName = isWin ? 'ffmpeg.exe' : 'ffmpeg';
+
+    const possiblePaths = [
+      path.join(app.getAppPath(), 'node_modules', 'ffmpeg-static', exeName),
+      path.join(process.cwd(), 'node_modules', 'ffmpeg-static', exeName),
+      path.join(app.getAppPath(), '..', 'app.asar.unpacked', 'node_modules', 'ffmpeg-static', exeName),
+      path.join(process.resourcesPath, exeName),
+    ];
+
+    for (const p of possiblePaths) {
+      try {
+        if (fs.existsSync(p)) {
+          ffmpegPath = p;
+          break;
+        }
+      } catch (e) {}
+    }
+
+    if (ffmpegPath) {
+      console.log('Setting FFmpeg path to:', ffmpegPath);
+      ffmpeg.setFfmpegPath(ffmpegPath);
+    } else {
+      console.log('No local FFmpeg found, relying on system/global FFmpeg.');
+    }
+    
+    this.ffmpegPathSet = true;
+  }
 
   start(outputPath: string, options: { isStreaming: boolean; streamUrl?: string; bitrate?: number }) {
     if (this.command) return;
+
+    this.resolveFFmpegPath();
 
     this.inputStream = new PassThrough();
 
