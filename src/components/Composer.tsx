@@ -621,26 +621,43 @@ const Composer: React.FC<ComposerProps> = ({
         }
 
         if (overlay.type === 'ticker') {
-          const speed = overlay.speed || 3; 
+          const speed = overlay.speed || 3;
           const oX = overlay.x ?? 0;
           const oY = overlay.y ?? 1030;
           const oW = overlay.width ?? 1920;
           const oH = overlay.height ?? 50;
-          
+
           ctx.fillStyle = s.backgroundColor; ctx.fillRect(oX, oY, oW, oH);
           ctx.fillStyle = s.color; ctx.font = `bold ${s.fontSize}px ${mainFont}`; ctx.textAlign = 'left';
-          
-          tickerX.current -= speed; 
-          if (tickerX.current < oX - ctx.measureText(overlay.title).width - 100) tickerX.current = oX + oW;
-          
-          // Clip ticker to its width
+
+          const textW = ctx.measureText(overlay.title).width;
+          // Gap between repetitions — gives a natural "breathing room" before the loop starts
+          const gap = Math.max(120, oW * 0.15);
+          const cycleLen = textW + gap;
+
+          tickerX.current -= speed;
+          // Once the lead copy has scrolled fully off the left edge, reset by one cycle
+          // so the trailing copy takes exactly its place — zero visible jump.
+          if (tickerX.current < oX - textW) {
+            tickerX.current += cycleLen;
+          }
+
+          const textY = oY + (oH + s.fontSize / 2) / 2;
+
+          // Clip to the ticker strip so text doesn't bleed outside
           ctx.save();
           ctx.beginPath(); ctx.rect(oX, oY, oW, oH); ctx.clip();
-          ctx.fillText(overlay.title, tickerX.current, oY + (oH + s.fontSize/2) / 2);
+
+          // Draw lead copy
+          ctx.fillText(overlay.title, tickerX.current, textY);
+          // Draw trailing copy exactly one cycle behind — this is what fills in
+          // while the lead copy is scrolling through, preventing any empty stretch
+          ctx.fillText(overlay.title, tickerX.current + cycleLen, textY);
+
           ctx.restore();
 
           if (s.showAccent !== false) {
-            ctx.fillStyle = s.accentColor || 'rgba(99, 102, 241, 1)'; 
+            ctx.fillStyle = s.accentColor || 'rgba(99, 102, 241, 1)';
             ctx.fillRect(oX, oY - 5, oW, 5);
           }
         }

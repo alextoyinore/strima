@@ -644,3 +644,90 @@ body {
   from { transform: translateX(20px); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
 }
+
+/* Status Bar */
+.status-bar {
+  height: 26px;
+  background-color: var(--bg-1);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 12px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.status-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.status-dot-main {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--tx-2);
+  opacity: 0.4;
+  flex-shrink: 0;
+  transition: background-color 0.3s, opacity 0.3s;
+}
+.status-dot-main.live { background-color: #ef4444; opacity: 1; animation: pulse-dot 1.5s ease-in-out infinite; }
+.status-dot-main.recording { background-color: #f59e0b; opacity: 1; animation: pulse-dot 1.5s ease-in-out infinite; }
+.status-dot-main.both { background-color: #f97316; opacity: 1; animation: pulse-dot 1s ease-in-out infinite; }
+
+.status-hint {
+  font-size: 11px;
+  color: var(--tx-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+
+.status-hint strong { color: var(--tx-1); font-weight: 700; }
+
+.status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 3px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+.status-indicator.live { background-color: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.25); }
+.status-indicator.recording { background-color: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.25); }
+.status-indicator.paused { background-color: rgba(99,102,241,0.12); color: #818cf8; border: 1px solid rgba(99,102,241,0.25); }
+
+.status-indicator .dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background-color: currentColor;
+}
+.status-indicator.live .dot, .status-indicator.recording .dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.status-version {
+  font-size: 10px;
+  color: var(--tx-2);
+  opacity: 0.4;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+

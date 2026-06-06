@@ -82,6 +82,7 @@ interface StreamingConfig {
 type ThemeMode = 'light' | 'dark' | 'system';
 type AccentColor = 'slate' | 'gold' | 'teal' | 'crimson' | 'electric';
 type SelectorTab = 'screens' | 'windows' | 'cameras';
+type SourceEditMode = 'screen' | 'camera' | 'audio' | 'video' | 'image' | null;
 
 const App: React.FC = () => {
   const [programSources, setProgramSources] = useState<Source[]>([]);
@@ -115,6 +116,11 @@ const App: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isRecordingPaused, setIsRecordingPaused] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ text: string, type: 'error' | 'success' | 'info' } | null>(null);
+  const [statusBarHint, setStatusBarHint] = useState<string | null>(null);
+  const [streamElapsed, setStreamElapsed] = useState(0);
+  const [recordElapsed, setRecordElapsed] = useState(0);
+  const streamStartRef = useRef<number | null>(null);
+  const recordStartRef = useRef<number | null>(null);
   
   const showStatus = (text: string, type: 'error' | 'success' | 'info' = 'info') => {
     setStatusMessage({ text, type });
@@ -133,6 +139,9 @@ const App: React.FC = () => {
   const [assetSidebarWidth, setAssetSidebarWidth] = useState(160);
   const [isPdfGridOpen, setIsPdfGridOpen] = useState(false);
   const [pdfGridSourceId, setPdfGridSourceId] = useState<string | null>(null);
+  const [sourceEditModal, setSourceEditModal] = useState<{ sourceId: string; mode: SourceEditMode } | null>(null);
+  const [editCameraId, setEditCameraId] = useState<string>('');
+  const [editMicId, setEditMicId] = useState<string>('default');
   const [showSafeAreas, setShowSafeAreas] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [isHowToUseOpen, setIsHowToUseOpen] = useState(false);
@@ -276,6 +285,32 @@ const App: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [scenes, previewSources, previewOverlays]);
+
+  // Status bar: global mouseover reads data-hint attributes
+  useEffect(() => {
+    const handleMouseOver = (e: MouseEvent) => {
+      let el = e.target as HTMLElement | null;
+      while (el) {
+        const hint = el.dataset?.hint;
+        if (hint) { setStatusBarHint(hint); return; }
+        el = el.parentElement;
+      }
+      setStatusBarHint(null);
+    };
+    document.addEventListener('mouseover', handleMouseOver);
+    return () => document.removeEventListener('mouseover', handleMouseOver);
+  }, []);
+
+  // Status bar: elapsed time tickers for stream + recording
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (streamStartRef.current !== null)
+        setStreamElapsed(Math.floor((Date.now() - streamStartRef.current) / 1000));
+      if (recordStartRef.current !== null && !isRecordingPaused)
+        setRecordElapsed(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isRecordingPaused]);
 
   const toggleMic = async () => {
     if (isMicEnabled) {
@@ -422,6 +457,88 @@ const App: React.FC = () => {
       setSelectedSourceId(newSource.id);
       setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
     }
+  };
+
+  // ─── Source In-place Replacement ───────────────────────────────────────────
+
+  const replaceSourceData = (id: string, updates: Partial<Source>) => {
+    const updated = previewSources.map(s => s.id === id ? { ...s, ...updates } : s);
+    setPreviewSources(updated);
+    setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
+  };
+
+  const handleSourceDoubleClick = async (source: Source, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (source.type === 'screen' || source.type === 'window') {
+      // Re-open the screen/window selector in the appropriate tab
+      const screens = await window.electron.getSources();
+      setAvailableScreens(screens);
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setAvailableCameras(devices.filter(d => d.kind === 'videoinput'));
+        setAvailableMics(devices.filter(d => d.kind === 'audioinput'));
+      } catch (e) { console.error(e); }
+      setSelectorTab(source.type === 'screen' ? 'screens' : 'windows');
+      setSourceEditModal({ sourceId: source.id, mode: source.type });
+    } else if (source.type === 'camera') {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setAvailableCameras(devices.filter(d => d.kind === 'videoinput'));
+        setAvailableMics(devices.filter(d => d.kind === 'audioinput'));
+      } catch (e) { console.error(e); }
+      setEditCameraId(source.id);
+      setEditMicId(source.audioDeviceId || 'default');
+      setSourceEditModal({ sourceId: source.id, mode: 'camera' });
+    } else if (source.type === 'audio') {
+      setSourceEditModal({ sourceId: source.id, mode: 'audio' });
+    } else if (source.type === 'video') {
+      setSourceEditModal({ sourceId: source.id, mode: 'video' });
+    } else if (source.type === 'image') {
+      setSourceEditModal({ sourceId: source.id, mode: 'image' });
+    }
+  };
+
+  const applyScreenEdit = (newScreen: any) => {
+    if (!sourceEditModal) return;
+    const id = sourceEditModal.sourceId;
+    // Stop existing stream for this source so Composer re-creates it
+    replaceSourceData(id, {
+      id: newScreen.id,
+      name: newScreen.name,
+      type: newScreen.id.startsWith('screen') ? 'screen' : 'window',
+      thumbnail: newScreen.thumbnail.toDataURL(),
+    });
+    // Also update selectedSourceId if it was the edited one
+    if (selectedSourceId === id) setSelectedSourceId(newScreen.id);
+    setSourceEditModal(null);
+  };
+
+  const applyCameraEdit = () => {
+    if (!sourceEditModal) return;
+    const id = sourceEditModal.sourceId;
+    const camDevice = availableCameras.find(c => c.deviceId === editCameraId);
+    if (!camDevice) return;
+    replaceSourceData(id, {
+      id: camDevice.deviceId,
+      name: camDevice.label || `Camera ${availableCameras.indexOf(camDevice) + 1}`,
+      audioDeviceId: editMicId,
+    });
+    if (selectedSourceId === id) setSelectedSourceId(camDevice.deviceId);
+    setSourceEditModal(null);
+  };
+
+  const applyFileEdit = async (mode: 'audio' | 'video' | 'image') => {
+    if (!sourceEditModal) return;
+    const id = sourceEditModal.sourceId;
+    let filters: { name: string; extensions: string[] }[] = [];
+    if (mode === 'audio') filters = [{ name: 'Audio', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'aac'] }];
+    else if (mode === 'video') filters = [{ name: 'Videos', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ts'] }];
+    else filters = [{ name: 'Images', extensions: ['jpg', 'png', 'jpeg', 'webp'] }];
+    const dataUrl = await window.electron.selectFile({ filters });
+    if (dataUrl) {
+      replaceSourceData(id, { data: dataUrl });
+    }
+    setSourceEditModal(null);
   };
 
   const linkVideoSource = () => {
@@ -587,6 +704,8 @@ const App: React.FC = () => {
         return; 
     }
     setIsStreaming(true);
+    streamStartRef.current = Date.now();
+    setStreamElapsed(0);
     showStatus('Connecting to stream...', 'info');
     try {
         const baseUrl = streamingConfig.rtmpUrl.trim();
@@ -614,7 +733,7 @@ const App: React.FC = () => {
     }
   };
 
-  const stopStreaming = async () => { setIsStreaming(false); if (mediaRecorderRef.current) { mediaRecorderRef.current.stop(); mediaRecorderRef.current = null; } await window.electron.stopFFmpeg(); };
+  const stopStreaming = async () => { setIsStreaming(false); streamStartRef.current = null; setStreamElapsed(0); if (mediaRecorderRef.current) { mediaRecorderRef.current.stop(); mediaRecorderRef.current = null; } await window.electron.stopFFmpeg(); };
 
   const startRecording = async () => {
     if (!composerStreamRef.current) {
@@ -623,6 +742,8 @@ const App: React.FC = () => {
     }
     setIsRecording(true);
     setIsRecordingPaused(false);
+    recordStartRef.current = Date.now();
+    setRecordElapsed(0);
     showStatus('Starting recording...', 'info');
     try {
         await window.electron.startFFmpeg({ outputPath: `recording-${Date.now()}.mp4`, isStreaming: false });
@@ -644,6 +765,8 @@ const App: React.FC = () => {
   const stopRecording = async () => { 
     setIsRecording(false); 
     setIsRecordingPaused(false);
+    recordStartRef.current = null;
+    setRecordElapsed(0);
     if (mediaRecorderRef.current) { 
         mediaRecorderRef.current.stop(); 
         mediaRecorderRef.current = null; 
@@ -709,22 +832,22 @@ const App: React.FC = () => {
         </div>
         <div className="header-center">
             <div className="broadcast-controls">
-              <button className={`btn-mini ${isStreaming ? 'live' : 'primary'}`} onClick={isStreaming ? stopStreaming : startStreaming}>
+              <button data-hint="Start live stream to your configured RTMP destination" className={`btn-mini ${isStreaming ? 'live' : 'primary'}`} onClick={isStreaming ? stopStreaming : startStreaming}>
                 {isStreaming ? <Square size={14} /> : <Radio size={14} />}
                 <span>{isStreaming ? 'Stop Stream' : 'Go Live'}</span>
               </button>
               {!isRecording ? (
-                <button className="btn-mini secondary" onClick={startRecording}>
+                <button data-hint="Start recording to a local MP4 file" className="btn-mini secondary" onClick={startRecording}>
                   <Play size={14} />
                   <span>Record</span>
                 </button>
               ) : (
                 <>
-                  <button className={`btn-mini ${isRecordingPaused ? 'secondary' : 'recording'}`} onClick={stopRecording}>
+                  <button data-hint="Stop recording and save the file to your Videos folder" className={`btn-mini ${isRecordingPaused ? 'secondary' : 'recording'}`} onClick={stopRecording}>
                     <Square size={14} />
                     <span>Stop Rec</span>
                   </button>
-                  <button className={`btn-mini ${isRecordingPaused ? 'primary' : 'secondary'}`} onClick={isRecordingPaused ? resumeRecording : pauseRecording}>
+                  <button data-hint={isRecordingPaused ? 'Resume the paused recording' : 'Pause the current recording'} className={`btn-mini ${isRecordingPaused ? 'primary' : 'secondary'}`} onClick={isRecordingPaused ? resumeRecording : pauseRecording}>
                     {isRecordingPaused ? <Play size={14} /> : <Pause size={14} />}
                     <span>{isRecordingPaused ? 'Resume' : 'Pause'}</span>
                   </button>
@@ -752,11 +875,11 @@ const App: React.FC = () => {
                 {statusMessage.text}
             </div>
           )}
-          <button className="icon-btn" onClick={saveWorkspace} title={isSaving ? 'Workspace Saved!' : 'Save Workspace'} style={{ marginRight: '8px' }}>
+          <button data-hint="Save the current workspace, scenes and layout configuration" className="icon-btn" onClick={saveWorkspace} title={isSaving ? 'Workspace Saved!' : 'Save Workspace'} style={{ marginRight: '8px' }}>
             <Save size={20} className={isSaving ? 'animate-pulse' : ''} style={{ color: isSaving ? 'var(--accent-solid)' : 'inherit' }} />
           </button>
           <div className="theme-selector-container" ref={themeMenuRef}>
-            <button className="icon-btn" onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}>
+            <button data-hint="Toggle dark / light theme and change accent colour palette" className="icon-btn" onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}>
               {resolvedTheme === 'dark' ? <Moon size={20} /> : <Sun size={20} />}
             </button>
             {isThemeMenuOpen && (
@@ -781,10 +904,10 @@ const App: React.FC = () => {
               </div>
             )}
           </div>
-          <button className="icon-btn" onClick={() => setIsSettingsOpen(true)} title="Settings"><SettingsIcon size={20} /></button>
+          <button data-hint="Open broadcast settings — RTMP URL, stream key, bitrate" className="icon-btn" onClick={() => setIsSettingsOpen(true)} title="Settings"><SettingsIcon size={20} /></button>
           
           <div className="theme-selector-container" style={{ marginLeft: '4px' }}>
-            <button className="icon-btn" onClick={() => setIsInfoMenuOpen(!isInfoMenuOpen)} title="Information">
+            <button data-hint="About Strima, keyboard shortcuts, and usage guide" className="icon-btn" onClick={() => setIsInfoMenuOpen(!isInfoMenuOpen)} title="Information">
               <Info size={20} />
             </button>
             {isInfoMenuOpen && (
@@ -811,17 +934,17 @@ const App: React.FC = () => {
             <aside className="asset-sidebar" style={{ width: assetSidebarWidth }}>
                 <h3 className="sidebar-title">Assets</h3>
                 <div className="asset-grid-mini">
-                    <button className="asset-btn" title="Screen Share" onClick={openSelector}><Monitor size={18} /><span>Screen</span></button>
-                    <button className="asset-btn" title="Add Image" onClick={addImageSource}><ImageIcon size={18} /><span>Image</span></button>
-                    <button className="asset-btn" title="Add Video" onClick={addVideoSource}><Film size={18} /><span>Video</span></button>
-                    <button className="asset-btn" title="Add Audio" onClick={addAudioSource}><Volume2 size={18} /><span>Audio</span></button>
-                    <button className="asset-btn" title="Link Video" onClick={linkVideoSource}><Globe size={18} /><span>Link</span></button>
-                    <button className="asset-btn" title="Add Text" onClick={addTextSource}><Type size={18} /><span>Text</span></button>
-                    <button className="asset-btn" title="Add PDF / Slides" onClick={() => addFileSource('pdf')}><Presentation size={18} /><span>Slides</span></button>
-                    <button className="asset-btn" title="Add Lower Third" onClick={() => addOverlay('lower-third')}><Layers size={18} /><span>Lower</span></button>
-                    <button className="asset-btn" title="Add Ticker" onClick={() => addOverlay('ticker')}><Zap size={18} /><span>Ticker</span></button>
-                    <button className="asset-btn" title="Add Headline" onClick={() => addOverlay('headline')}><FileText size={18} /><span>Headline</span></button>
-                    <button className="asset-btn" title="Add Logo" onClick={async () => {
+                    <button data-hint="Add screen share or window capture — pick a display or app window" className="asset-btn" title="Screen Share" onClick={openSelector}><Monitor size={18} /><span>Screen</span></button>
+                    <button data-hint="Import an image file (JPG, PNG, WebP) into the scene" className="asset-btn" title="Add Image" onClick={addImageSource}><ImageIcon size={18} /><span>Image</span></button>
+                    <button data-hint="Import a video file (MP4, MKV, MOV…) — plays on loop" className="asset-btn" title="Add Video" onClick={addVideoSource}><Film size={18} /><span>Video</span></button>
+                    <button data-hint="Import an audio file (MP3, WAV, AAC…) — plays on loop" className="asset-btn" title="Add Audio" onClick={addAudioSource}><Volume2 size={18} /><span>Audio</span></button>
+                    <button data-hint="Add a video from a URL — paste a direct video link" className="asset-btn" title="Link Video" onClick={linkVideoSource}><Globe size={18} /><span>Link</span></button>
+                    <button data-hint="Add a text element — style font, size, colour and alignment" className="asset-btn" title="Add Text" onClick={addTextSource}><Type size={18} /><span>Text</span></button>
+                    <button data-hint="Import a PDF or PowerPoint presentation as a slide source" className="asset-btn" title="Add PDF / Slides" onClick={() => addFileSource('pdf')}><Presentation size={18} /><span>Slides</span></button>
+                    <button data-hint="Add a lower third graphic — name, title and animated entry" className="asset-btn" title="Add Lower Third" onClick={() => addOverlay('lower-third')}><Layers size={18} /><span>Lower</span></button>
+                    <button data-hint="Add a scrolling news ticker — text scrolls continuously across the bottom" className="asset-btn" title="Add Ticker" onClick={() => addOverlay('ticker')}><Zap size={18} /><span>Ticker</span></button>
+                    <button data-hint="Add a headline graphic — bold main title with supporting subtitle bar" className="asset-btn" title="Add Headline" onClick={() => addOverlay('headline')}><FileText size={18} /><span>Headline</span></button>
+                    <button data-hint="Add a logo or branding image overlay — drag to reposition" className="asset-btn" title="Add Logo" onClick={async () => {
                         const path = await (window as any).electron.selectFile({ filters: [{ name: 'Logos', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }] });
                         if (path) addOverlay('logo', path);
                     }}><ImageIcon size={18} /><span>Logo</span></button>
@@ -835,10 +958,10 @@ const App: React.FC = () => {
                     <div className="monitor-header">
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span>PREVIEW</span>
-                            <button className={`icon-btn xs ${showSafeAreas ? 'accent' : ''}`} onClick={() => setShowSafeAreas(!showSafeAreas)} title="Toggle Safe Areas & 9:16 Zone">
+                            <button data-hint="Toggle safe area guides and 9:16 social media zone overlay" className={`icon-btn xs ${showSafeAreas ? 'accent' : ''}`} onClick={() => setShowSafeAreas(!showSafeAreas)} title="Toggle Safe Areas & 9:16 Zone">
                                 <Maximize size={14} />
                             </button>
-                            <button className={`icon-btn xs ${showGrid ? 'accent' : ''}`} onClick={() => setShowGrid(!showGrid)} title="Toggle Rule of Thirds Grid">
+                            <button data-hint="Toggle rule of thirds composition grid" className={`icon-btn xs ${showGrid ? 'accent' : ''}`} onClick={() => setShowGrid(!showGrid)} title="Toggle Rule of Thirds Grid">
                                 <Grid size={14} />
                             </button>
                         </div>
@@ -884,7 +1007,7 @@ const App: React.FC = () => {
             <div className="console-column" style={{ width: sidebarWidth }}>
                 <div className="column-header-with-controls">
                     <h3 className="column-title">Scenes</h3>
-                    <button className="icon-btn xs accent" onClick={createScene} title="New Scene"><Plus size={16} /></button>
+                    <button data-hint="Create a new empty scene — keyboard shortcut: press a number key to switch" className="icon-btn xs accent" onClick={createScene} title="New Scene"><Plus size={16} /></button>
                 </div>
                 <div className="column-body">
                     {scenes.map(scene => (
@@ -903,13 +1026,22 @@ const App: React.FC = () => {
                 <div className="column-header-with-controls">
                     <h3 className="column-title">Sources</h3>
                     <div className="overlay-transitions">
-                        <button className="btn-transition cut" onClick={executeTransition}>CUT</button>
-                        <button className="btn-transition fade" onClick={executeTransition}>FADE</button>
+                        <button data-hint="Instantly cut to this layout in the program output" className="btn-transition cut" onClick={executeTransition}>CUT</button>
+                        <button data-hint="Fade transition to program output" className="btn-transition fade" onClick={executeTransition}>FADE</button>
                     </div>
                 </div>
                 <div className="column-body">
-                    {previewSources.map(source => (
-                        <div key={source.id} className={`source-row ${selectedSourceId === source.id ? 'selected' : ''}`} onClick={() => { setSelectedSourceId(source.id); setSelectedOverlayId(null); }}>
+                    {previewSources.map(source => {
+                        const canEdit = ['screen','window','camera','audio','video','image'].includes(source.type);
+                        return (
+                        <div
+                            key={source.id}
+                            className={`source-row ${selectedSourceId === source.id ? 'selected' : ''}`}
+                            onClick={() => { setSelectedSourceId(source.id); setSelectedOverlayId(null); }}
+                            onDoubleClick={(e) => canEdit && handleSourceDoubleClick(source, e)}
+                            title={canEdit ? 'Double-click to change source' : ''}
+                            style={{ cursor: canEdit ? 'pointer' : 'default' }}
+                        >
                             <div className="row-meta">
                                 {source.type === 'camera' ? <Camera size={14} /> : 
                                  source.type === 'video' ? <Film size={14} /> : 
@@ -918,7 +1050,12 @@ const App: React.FC = () => {
                                  source.type === 'pdf' ? <FileText size={14} /> :
                                  source.type === 'slides' ? <Presentation size={14} /> :
                                  <Monitor size={14} />}
-                                <span className="row-name">{source.name}</span>
+                                <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                    <span className="row-name">{source.name}</span>
+                                    {canEdit && (
+                                        <span style={{ fontSize: '9px', color: 'var(--tx-2)', opacity: 0.6, fontWeight: 600, letterSpacing: '0.3px' }}>double-click to change</span>
+                                    )}
+                                </div>
                             </div>
                             <div className="row-controls">
                                 {(source.type === 'camera' || source.type === 'video' || source.type === 'image' || source.type === 'pdf' || source.type === 'slides') && (
@@ -930,7 +1067,8 @@ const App: React.FC = () => {
                                 <button className="icon-btn xs" onClick={(e) => { e.stopPropagation(); removeSource(source.id); }}><X size={12} /></button>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
             </div>
 
@@ -938,7 +1076,7 @@ const App: React.FC = () => {
                 <h3 className="column-title">Mixer & Overlays</h3>
                 <div className="column-body">
                     <div className="audio-mixer-widget">
-                        <button className={`toggle-btn ${isMicEnabled ? 'active' : ''}`} onClick={toggleMic}>
+                        <button data-hint="Toggle live microphone — adds your voice to the stream and recording" className={`toggle-btn ${isMicEnabled ? 'active' : ''}`} onClick={toggleMic}>
                             {isMicEnabled ? <Mic size={14} /> : <MicOff size={14} />}
                             <span>Microphone</span>
                         </button>
@@ -1374,6 +1512,215 @@ const App: React.FC = () => {
             </div>
         </section>
       </main>
+
+      {/* ─── Status Bar ─────────────────────────────────────────────────────── */}
+      <div className="status-bar">
+        <div className="status-bar-left">
+          <div className={`status-dot-main ${isStreaming && isRecording ? 'both' : isStreaming ? 'live' : isRecording ? 'recording' : ''}`} />
+          <span className="status-hint">
+            {statusBarHint
+              ? statusBarHint
+              : isStreaming && isRecording
+                ? 'Live streaming and recording simultaneously — avoid interruptions'
+                : isStreaming
+                  ? 'Live stream active — your output is going to viewers'
+                  : isRecording
+                    ? `Recording in progress${isRecordingPaused ? ' (paused)' : ''} — saved to Videos folder when stopped`
+                    : 'Ready — hover over any element to see what it does'}
+          </span>
+        </div>
+        <div className="status-bar-right">
+          {isStreaming && (
+            <div className="status-indicator live">
+              <span className="dot" />
+              LIVE {formatTime(streamElapsed)}
+            </div>
+          )}
+          {isRecording && (
+            <div className={`status-indicator ${isRecordingPaused ? 'paused' : 'recording'}`}>
+              <span className="dot" />
+              {isRecordingPaused ? 'PAUSED' : 'REC'} {formatTime(recordElapsed)}
+            </div>
+          )}
+          {!isStreaming && !isRecording && (
+            <span className="status-version">STRIMA v1.0</span>
+          )}
+        </div>
+      </div>
+
+      {/* ─── Source Edit Modals ─────────────────────────────────────────────── */}
+
+      {sourceEditModal && sourceEditModal.mode !== 'camera' && sourceEditModal.mode !== 'audio' && sourceEditModal.mode !== 'video' && sourceEditModal.mode !== 'image' && (
+        <div className="modal-overlay">
+          <div className="modal-box">
+            <div className="modal-head">
+              <h2>Change Source</h2>
+              <div className="tab-row">
+                <button className={selectorTab === 'screens' ? 'active' : ''} onClick={() => setSelectorTab('screens')} style={{ color: selectorTab === 'screens' ? 'var(--accent)' : 'var(--tx-1)' }}>Screens</button>
+                <button className={selectorTab === 'windows' ? 'active' : ''} onClick={() => setSelectorTab('windows')} style={{ color: selectorTab === 'windows' ? 'var(--accent)' : 'var(--tx-1)' }}>Windows</button>
+              </div>
+              <button onClick={() => setSourceEditModal(null)} className="icon-btn"><X size={20} /></button>
+            </div>
+            <div className="modal-grid">
+              {(selectorTab === 'screens'
+                ? availableScreens.filter(s => s.id.startsWith('screen'))
+                : availableScreens.filter(s => s.id.startsWith('window'))
+              ).map(screen => (
+                <div key={screen.id} className="grid-item" onClick={() => applyScreenEdit(screen)}>
+                  <img src={screen.thumbnail.toDataURL()} alt="" />
+                  <span>{screen.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sourceEditModal?.mode === 'camera' && (
+        <div className="modal-overlay">
+          <div className="modal-box settings">
+            <div className="modal-head">
+              <h2>Change Camera Source</h2>
+              <button onClick={() => setSourceEditModal(null)} className="icon-btn"><X size={20} /></button>
+            </div>
+            <div className="modal-form">
+              <div className="form-group" style={{ padding: '16px', background: 'var(--bg-1)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '600', color: 'var(--tx-1)', marginBottom: '4px' }}>
+                  <Camera size={16} style={{ color: 'var(--accent)' }} /> Video Device (Camera)
+                </label>
+                <select
+                  value={editCameraId}
+                  onChange={(e) => setEditCameraId(e.target.value)}
+                  style={{ width: '100%', padding: '10px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--tx-1)', outline: 'none' }}
+                >
+                  <option value="">-- Choose a Camera --</option>
+                  {availableCameras.map(cam => (
+                    <option key={cam.deviceId} value={cam.deviceId}>
+                      {cam.label || `Camera (${cam.deviceId.slice(0, 5)})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-group" style={{ padding: '16px', background: 'var(--bg-1)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '600', color: 'var(--tx-1)', marginBottom: '4px' }}>
+                  <Mic size={16} style={{ color: 'var(--accent)' }} /> Audio Source (Microphone)
+                </label>
+                <select
+                  value={editMicId}
+                  onChange={(e) => setEditMicId(e.target.value)}
+                  style={{ width: '100%', padding: '10px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--tx-1)', outline: 'none' }}
+                >
+                  <option value="default">Default Microphone</option>
+                  <option value="none">No Audio (Video Only)</option>
+                  {availableMics.map(mic => (
+                    <option key={mic.deviceId} value={mic.deviceId}>
+                      {mic.label || `Microphone (${mic.deviceId.slice(0, 5)})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  className="btn-mini secondary flex-1"
+                  onClick={() => {
+                    // Refresh: just re-apply same device IDs to force stream recreation
+                    if (!sourceEditModal) return;
+                    replaceSourceData(sourceEditModal.sourceId, { audioDeviceId: editMicId + '_refresh_' + Date.now() });
+                    setTimeout(() => replaceSourceData(sourceEditModal.sourceId, { audioDeviceId: editMicId }), 100);
+                    setSourceEditModal(null);
+                    showStatus('Camera refreshed', 'success');
+                  }}
+                  style={{ padding: '12px', display: 'flex', justifyContent: 'center', gap: '8px' }}
+                >
+                  <RotateCcw size={16} /> Refresh Camera
+                </button>
+                <button
+                  className="btn-mini primary flex-1"
+                  disabled={!editCameraId}
+                  onClick={applyCameraEdit}
+                  style={{ padding: '12px', display: 'flex', justifyContent: 'center', gap: '8px' }}
+                >
+                  <Check size={16} /> Apply Changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sourceEditModal?.mode === 'audio' && (
+        <div className="modal-overlay">
+          <div className="modal-box settings" style={{ maxWidth: '420px' }}>
+            <div className="modal-head">
+              <h2>Change Audio File</h2>
+              <button onClick={() => setSourceEditModal(null)} className="icon-btn"><X size={20} /></button>
+            </div>
+            <div className="modal-form" style={{ alignItems: 'center', textAlign: 'center', gap: '24px', padding: '32px 24px' }}>
+              <Volume2 size={48} style={{ color: 'var(--accent)', opacity: 0.8 }} />
+              <div>
+                <p style={{ fontSize: '14px', color: 'var(--tx-1)', marginBottom: '8px', fontWeight: 600 }}>Select a new audio file</p>
+                <p style={{ fontSize: '12px', color: 'var(--tx-2)' }}>Supported: MP3, WAV, OGG, M4A, AAC</p>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
+                <button className="btn-ghost flex-1" onClick={() => setSourceEditModal(null)}>Cancel</button>
+                <button className="btn-mini primary flex-1" onClick={() => applyFileEdit('audio')} style={{ padding: '12px', justifyContent: 'center' }}>
+                  <Volume2 size={16} /> Browse Audio
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sourceEditModal?.mode === 'video' && (
+        <div className="modal-overlay">
+          <div className="modal-box settings" style={{ maxWidth: '420px' }}>
+            <div className="modal-head">
+              <h2>Change Video File</h2>
+              <button onClick={() => setSourceEditModal(null)} className="icon-btn"><X size={20} /></button>
+            </div>
+            <div className="modal-form" style={{ alignItems: 'center', textAlign: 'center', gap: '24px', padding: '32px 24px' }}>
+              <Film size={48} style={{ color: 'var(--accent)', opacity: 0.8 }} />
+              <div>
+                <p style={{ fontSize: '14px', color: 'var(--tx-1)', marginBottom: '8px', fontWeight: 600 }}>Select a new video file</p>
+                <p style={{ fontSize: '12px', color: 'var(--tx-2)' }}>Supported: MP4, WebM, MKV, AVI, MOV, FLV, WMV, TS</p>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
+                <button className="btn-ghost flex-1" onClick={() => setSourceEditModal(null)}>Cancel</button>
+                <button className="btn-mini primary flex-1" onClick={() => applyFileEdit('video')} style={{ padding: '12px', justifyContent: 'center' }}>
+                  <Film size={16} /> Browse Video
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {sourceEditModal?.mode === 'image' && (
+        <div className="modal-overlay">
+          <div className="modal-box settings" style={{ maxWidth: '420px' }}>
+            <div className="modal-head">
+              <h2>Change Image</h2>
+              <button onClick={() => setSourceEditModal(null)} className="icon-btn"><X size={20} /></button>
+            </div>
+            <div className="modal-form" style={{ alignItems: 'center', textAlign: 'center', gap: '24px', padding: '32px 24px' }}>
+              <ImageIcon size={48} style={{ color: 'var(--accent)', opacity: 0.8 }} />
+              <div>
+                <p style={{ fontSize: '14px', color: 'var(--tx-1)', marginBottom: '8px', fontWeight: 600 }}>Select a new image</p>
+                <p style={{ fontSize: '12px', color: 'var(--tx-2)' }}>Supported: JPG, PNG, JPEG, WebP</p>
+              </div>
+              <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
+                <button className="btn-ghost flex-1" onClick={() => setSourceEditModal(null)}>Cancel</button>
+                <button className="btn-mini primary flex-1" onClick={() => applyFileEdit('image')} style={{ padding: '12px', justifyContent: 'center' }}>
+                  <ImageIcon size={16} /> Browse Image
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isSelectorOpen && (
         <div className="modal-overlay">
