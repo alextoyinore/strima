@@ -29,6 +29,7 @@ interface Source {
     italic: boolean;
     textAlign: 'left' | 'center' | 'right';
   };
+  audioDeviceId?: string;
 }
 
 interface Overlay {
@@ -106,6 +107,9 @@ const App: React.FC = () => {
   const [isAboutOpen, setIsAboutOpen] = useState(false);
   const [availableScreens, setAvailableScreens] = useState<any[]>([]);
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>('');
+  const [selectedMicId, setSelectedMicId] = useState<string>('default');
   
   const [isStreaming, setIsStreaming] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -179,9 +183,28 @@ const App: React.FC = () => {
           if (config.sidebarWidth) setSidebarWidth(config.sidebarWidth);
           if (config.assetSidebarWidth) setAssetSidebarWidth(config.assetSidebarWidth);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.error(e);
+      }
     };
     loadData();
+  }, []);
+
+  useEffect(() => {
+    const updateDevices = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        setAvailableCameras(devices.filter(d => d.kind === 'videoinput'));
+        setAvailableMics(devices.filter(d => d.kind === 'audioinput'));
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    updateDevices();
+    navigator.mediaDevices.addEventListener('devicechange', updateDevices);
+    return () => {
+      navigator.mediaDevices.removeEventListener('devicechange', updateDevices);
+    };
   }, []);
 
   const saveWorkspace = () => {
@@ -272,8 +295,20 @@ const App: React.FC = () => {
     setAvailableScreens(screens);
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
-        setAvailableCameras(devices.filter(d => d.kind === 'videoinput'));
-    } catch (e) {}
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        const audioDevices = devices.filter(d => d.kind === 'audioinput');
+        setAvailableCameras(videoDevices);
+        setAvailableMics(audioDevices);
+        
+        if (videoDevices.length > 0) {
+          setSelectedCameraId(videoDevices[0].deviceId);
+        } else {
+          setSelectedCameraId('');
+        }
+        setSelectedMicId('default');
+    } catch (e) {
+      console.error(e);
+    }
     setIsSelectorOpen(true);
   };
 
@@ -292,11 +327,14 @@ const App: React.FC = () => {
     setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
   };
 
-  const addCameraSource = (device: MediaDeviceInfo) => {
+  const addCameraSource = (device: MediaDeviceInfo, micId = 'default') => {
     const newSource: Source = {
       id: device.deviceId,
       name: device.label || `Camera ${availableCameras.indexOf(device) + 1}`,
-      type: 'camera', visible: true, x: 1400, y: 700, width: 480, height: 270
+      type: 'camera', 
+      visible: true, 
+      x: 1400, y: 700, width: 480, height: 270,
+      audioDeviceId: micId
     };
     const updated = [...previewSources, newSource];
     setPreviewSources(updated);
@@ -519,9 +557,10 @@ const App: React.FC = () => {
 
   const getBestSupportedMimeType = () => {
     const types = [
-      'video/webm;codecs=h264',
+      'video/webm;codecs=h264,opus',
       'video/webm;codecs=vp9,opus',
       'video/webm;codecs=vp8,opus',
+      'video/webm;codecs=h264',
       'video/webm;codecs=vp9',
       'video/webm;codecs=vp8',
       'video/webm'
@@ -935,6 +974,55 @@ const App: React.FC = () => {
                                 setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
                             }} /></div>
 
+                            {selectedSource.type === 'camera' && (
+                                <div className="camera-audio-settings" style={{ margin: '8px 0', padding: '12px', background: 'var(--bg-1)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                                    <div className="editor-field">
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: '600', color: 'var(--tx-2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                            <Mic size={14} style={{ color: 'var(--accent)' }} /> Audio Input Device
+                                        </label>
+                                        <select 
+                                            value={selectedSource.audioDeviceId || 'default'} 
+                                            onChange={(e) => {
+                                                const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, audioDeviceId: e.target.value } : s);
+                                                setPreviewSources(updated);
+                                                setScenes(scenes.map(sc => sc.id === activeSceneId ? { ...sc, sources: updated } : sc));
+                                            }}
+                                            style={{ width: '100%', marginTop: '6px', padding: '8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--tx-1)', outline: 'none' }}
+                                        >
+                                            <option value="default">Default Microphone</option>
+                                            <option value="none">No Audio (Mute)</option>
+                                            {availableMics.map(mic => (
+                                                <option key={mic.deviceId} value={mic.deviceId}>
+                                                    {mic.label || `Microphone (${mic.deviceId.slice(0, 5)})`}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="volume-control" style={{ marginTop: '16px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                            <Volume2 size={14} style={{ color: 'var(--accent)' }} />
+                                            <label className="menu-label" style={{ marginBottom: 0, fontSize: '11px', fontWeight: '600', color: 'var(--tx-2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Volume</label>
+                                            <span style={{ marginLeft: 'auto', fontSize: '10px', opacity: 0.7 }}>{Math.round((selectedSource.volume ?? 1) * 100)}%</span>
+                                        </div>
+                                        <input 
+                                            type="range" 
+                                            className="seeker-bar"
+                                            min="0" 
+                                            max="1" 
+                                            step="0.01"
+                                            value={selectedSource.volume ?? 1} 
+                                            onChange={(e) => {
+                                                const val = parseFloat(e.target.value);
+                                                const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, volume: val } : s);
+                                                setPreviewSources(updated);
+                                                setScenes(scenes.map(sc => sc.id === activeSceneId ? { ...sc, sources: updated } : sc));
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
                             {(selectedSource.type === 'pdf' || selectedSource.type === 'slides') && (
                                 <div className="pdf-controls-wrapper" style={{ margin: '8px 0', padding: '12px', background: 'var(--bg-1)', borderRadius: '6px', border: '1px solid var(--border)' }}>
                                     <div className="column-header-with-controls" style={{ marginBottom: '8px' }}>
@@ -1307,12 +1395,60 @@ const App: React.FC = () => {
                         <img src={source.thumbnail.toDataURL()} alt="" />
                         <span>{source.name}</span>
                     </div>
-                )) : availableCameras.map(device => (
-                    <div key={device.deviceId} className="grid-item camera" onClick={() => addCameraSource(device)}>
-                        <Video size={40} />
-                        <span>{device.label || 'Camera'}</span>
+                )) : (
+                    <div className="camera-selector-panel" style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', maxWidth: '500px', margin: '0 auto', padding: '20px', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: '8px' }}>
+                        <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '600', color: 'var(--tx-1)' }}>
+                                <Video size={16} style={{ color: 'var(--accent)' }} /> Select Video Device (Camera)
+                            </label>
+                            <select 
+                                value={selectedCameraId} 
+                                onChange={(e) => setSelectedCameraId(e.target.value)}
+                                style={{ width: '100%', padding: '10px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--tx-1)', outline: 'none' }}
+                            >
+                                <option value="">-- Choose a Camera --</option>
+                                {availableCameras.map(cam => (
+                                    <option key={cam.deviceId} value={cam.deviceId}>
+                                        {cam.label || `Camera (${cam.deviceId.slice(0, 5)})`}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: '600', color: 'var(--tx-1)' }}>
+                                <Mic size={16} style={{ color: 'var(--accent)' }} /> Select Audio Source (Microphone)
+                            </label>
+                            <select 
+                                value={selectedMicId} 
+                                onChange={(e) => setSelectedMicId(e.target.value)}
+                                style={{ width: '100%', padding: '10px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: '6px', color: 'var(--tx-1)', outline: 'none' }}
+                            >
+                                <option value="default">Default Microphone</option>
+                                <option value="none">No Audio (Video Only)</option>
+                                {availableMics.map(mic => (
+                                    <option key={mic.deviceId} value={mic.deviceId}>
+                                        {mic.label || `Microphone (${mic.deviceId.slice(0, 5)})`}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+
+                        <button 
+                            className="btn-mini primary"
+                            disabled={!selectedCameraId}
+                            onClick={() => {
+                                const camDevice = availableCameras.find(c => c.deviceId === selectedCameraId);
+                                if (camDevice) {
+                                    addCameraSource(camDevice, selectedMicId);
+                                }
+                            }}
+                            style={{ padding: '12px', marginTop: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', fontWeight: 'bold', fontSize: '14px', borderRadius: '6px' }}
+                        >
+                            <Plus size={16} /> Add Camera Source
+                        </button>
                     </div>
-                ))}
+                )}
             </div>
           </div>
         </div>

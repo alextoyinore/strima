@@ -26,6 +26,7 @@ interface Source {
     italic: boolean;
     textAlign: 'left' | 'center' | 'right';
   };
+  audioDeviceId?: string;
 }
 
 interface Overlay {
@@ -99,6 +100,7 @@ const Composer: React.FC<ComposerProps> = ({
   const imageElements = useRef<Record<string, HTMLImageElement>>({});
   const pdfCanvases = useRef<Record<string, HTMLCanvasElement>>({});
   const streams = useRef<Record<string, MediaStream>>({});
+  const cameraAudioDeviceIds = useRef<Record<string, string>>({});
   const animationFrameRef = useRef<number>();
   const tickerX = useRef(1920);
   const overlayProgress = useRef<Record<string, number>>({});
@@ -183,6 +185,7 @@ const Composer: React.FC<ComposerProps> = ({
               streams.current[id].getTracks().forEach(t => t.stop());
               delete streams.current[id];
               delete videoElements.current[id];
+              delete cameraAudioDeviceIds.current[id];
           }
       });
       Object.keys(audioNodes.current).forEach(id => {
@@ -213,11 +216,35 @@ const Composer: React.FC<ComposerProps> = ({
             loadPdf(source);
         }
 
+        const currentAudioDeviceId = source.audioDeviceId || 'default';
+        const isCamera = source.type === 'camera';
+        const needRecreate = isCamera && streams.current[source.id] && cameraAudioDeviceIds.current[source.id] !== currentAudioDeviceId;
+
+        if (needRecreate) {
+            if (streams.current[source.id]) {
+                streams.current[source.id].getTracks().forEach(t => t.stop());
+                delete streams.current[source.id];
+            }
+            if (audioNodes.current[source.id]) {
+                audioNodes.current[source.id].source.disconnect();
+                audioNodes.current[source.id].gain.disconnect();
+                delete audioNodes.current[source.id];
+            }
+        }
+
         if ((source.type === 'screen' || source.type === 'window' || source.type === 'camera') && !streams.current[source.id]) {
           try {
             let stream: MediaStream;
             if (source.type === 'camera') {
-                stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: source.id }, width: 1920, height: 1080 }, audio: true });
+                const audioConstraints = source.audioDeviceId === 'none'
+                    ? false
+                    : (source.audioDeviceId && source.audioDeviceId !== 'default'
+                        ? { deviceId: { exact: source.audioDeviceId } }
+                        : true);
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { deviceId: { exact: source.id }, width: 1920, height: 1080 }, 
+                    audio: audioConstraints 
+                });
             } else {
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: source.id, minWidth: 1280, maxWidth: 1920, minHeight: 720, maxHeight: 1080 } } as any,
@@ -228,9 +255,12 @@ const Composer: React.FC<ComposerProps> = ({
             video.srcObject = stream;
             video.muted = false; video.volume = 0;
             video.setAttribute('playsinline', 'true');
-            video.play().catch(() => {});
+            video.play().catch(e => console.warn(e));
             streams.current[source.id] = stream;
             videoElements.current[source.id] = video;
+            if (isCamera) {
+                cameraAudioDeviceIds.current[source.id] = currentAudioDeviceId;
+            }
 
             if (stream.getAudioTracks().length > 0 && audioContext.current && audioDestination.current) {
                 const sourceNode = audioContext.current.createMediaStreamSource(stream);
@@ -298,7 +328,7 @@ const Composer: React.FC<ComposerProps> = ({
       if (!el) return;
 
       if (source.playing === false && !el.paused) el.pause();
-      if (source.playing !== false && el.paused) el.play().catch(() => {});
+      if (source.playing !== false && el.paused) el.play().catch(e => console.warn(e));
 
       const node = audioNodes.current[source.id];
       if (node && source.volume !== undefined) {
