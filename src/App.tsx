@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, ChevronLeft, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward, HelpCircle, Info, MousePointer2, ExternalLink, BookOpen, Check } from 'lucide-react';
+import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, ChevronLeft, ChevronDown, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward, HelpCircle, Info, MousePointer2, ExternalLink, BookOpen, Check, FolderOpen } from 'lucide-react';
 import Composer from './components/Composer';
 
 interface Source {
@@ -30,6 +30,7 @@ interface Source {
     textAlign: 'left' | 'center' | 'right';
   };
   audioDeviceId?: string;
+  isBackground?: boolean;
 }
 
 interface Overlay {
@@ -148,6 +149,11 @@ const App: React.FC = () => {
   const [isInfoMenuOpen, setIsInfoMenuOpen] = useState(false);
   const [isAutoSaveEnabled, setIsAutoSaveEnabled] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [activeWorkspaceName, setActiveWorkspaceName] = useState<string>('Default');
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
+  const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+  const workspaceMenuRef = useRef<HTMLDivElement>(null);
   const isResizingRef = useRef<'console' | 'sidebar' | 'asset-sidebar' | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -170,28 +176,42 @@ const App: React.FC = () => {
     }
   };
 
+  const applyConfig = (config: any) => {
+    if (!config) return;
+    if (config.scenes) setScenes(config.scenes);
+    if (config.activeSceneId) {
+        setActiveSceneId(config.activeSceneId);
+        const activeScene = config.scenes?.find((s: any) => s.id === config.activeSceneId);
+        if (activeScene) {
+            setPreviewSources(activeScene.sources || []);
+            setPreviewOverlays(activeScene.overlays || []);
+        }
+    } else if (config.scenes && config.scenes.length > 0) {
+        setActiveSceneId(config.scenes[0].id);
+        setPreviewSources(config.scenes[0].sources || []);
+        setPreviewOverlays(config.scenes[0].overlays || []);
+    } else {
+        setPreviewSources([]);
+        setPreviewOverlays([]);
+    }
+    if (config.streamingConfig) setStreamingConfig(config.streamingConfig);
+    if (config.themeMode) setThemeMode(config.themeMode);
+    if (config.accentColor) setAccentColor(config.accentColor);
+    if (config.isAutoSaveEnabled !== undefined) setIsAutoSaveEnabled(config.isAutoSaveEnabled);
+    if (config.consoleHeight) setConsoleHeight(config.consoleHeight);
+    if (config.sidebarWidth) setSidebarWidth(config.sidebarWidth);
+    if (config.assetSidebarWidth) setAssetSidebarWidth(config.assetSidebarWidth);
+    if (config.activeWorkspacePath) {
+        const parts = config.activeWorkspacePath.replace(/\\/g, '/').split('/');
+        setActiveWorkspaceName(parts[parts.length - 1] || 'Default');
+    }
+  };
+
   useEffect(() => {
     const loadData = async () => {
       try {
         const config = await window.electron.loadConfig();
-        if (config) {
-          if (config.scenes) setScenes(config.scenes);
-          if (config.activeSceneId) {
-              setActiveSceneId(config.activeSceneId);
-              const activeScene = config.scenes.find((s: any) => s.id === config.activeSceneId);
-              if (activeScene) {
-                  setPreviewSources(activeScene.sources || []);
-                  setPreviewOverlays(activeScene.overlays || []);
-              }
-          }
-          if (config.streamingConfig) setStreamingConfig(config.streamingConfig);
-          if (config.themeMode) setThemeMode(config.themeMode);
-          if (config.accentColor) setAccentColor(config.accentColor);
-          if (config.isAutoSaveEnabled !== undefined) setIsAutoSaveEnabled(config.isAutoSaveEnabled);
-          if (config.consoleHeight) setConsoleHeight(config.consoleHeight);
-          if (config.sidebarWidth) setSidebarWidth(config.sidebarWidth);
-          if (config.assetSidebarWidth) setAssetSidebarWidth(config.assetSidebarWidth);
-        }
+        applyConfig(config);
       } catch (e) {
         console.error(e);
       }
@@ -226,6 +246,37 @@ const App: React.FC = () => {
         setIsSaving(false);
         showStatus('Workspace Saved', 'success');
     }, 1000);
+  };
+
+  const handleOpenWorkspace = async () => {
+    setIsWorkspaceMenuOpen(false);
+    try {
+      const config = await window.electron.openWorkspace();
+      if (config) {
+        applyConfig(config);
+        showStatus(`Switched to workspace "${config.activeWorkspacePath?.split('/').pop() || 'workspace'}"`, 'success');
+      }
+    } catch (e) {
+      console.error(e);
+      showStatus('Failed to open workspace', 'error');
+    }
+  };
+
+  const handleCreateWorkspace = async () => {
+    if (!newWorkspaceName.trim()) return;
+    setIsCreatingWorkspace(false);
+    setIsWorkspaceMenuOpen(false);
+    try {
+      const config = await window.electron.createWorkspace(newWorkspaceName.trim());
+      if (config) {
+        applyConfig(config);
+        showStatus(`Created workspace "${newWorkspaceName.trim()}"`, 'success');
+      }
+    } catch (e) {
+      console.error(e);
+      showStatus('Failed to create workspace', 'error');
+    }
+    setNewWorkspaceName('');
   };
 
   useEffect(() => {
@@ -403,6 +454,40 @@ const App: React.FC = () => {
     }
   };
 
+  const addBackground = async () => {
+    const dataUrl = await window.electron.selectFile({
+      filters: [
+        { name: 'Background Media', extensions: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ts'] },
+        { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] },
+        { name: 'Videos', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ts'] }
+      ]
+    });
+    if (dataUrl) {
+      const ext = dataUrl.split('.').pop()?.toLowerCase();
+      const isVideo = ['mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ts'].includes(ext || '');
+      const type = isVideo ? 'video' : 'image';
+      const newSource: Source = {
+        id: `bg-${Date.now()}`,
+        name: `Background (${isVideo ? 'Video' : 'Image'})`,
+        type,
+        data: dataUrl,
+        visible: true,
+        x: 0,
+        y: 0,
+        width: 1920,
+        height: 1080,
+        fit: 'cover',
+        isBackground: true,
+        playing: isVideo ? true : undefined
+      };
+      const filtered = previewSources.filter(s => !s.isBackground);
+      const updated = [newSource, ...filtered];
+      setPreviewSources(updated);
+      setSelectedSourceId(newSource.id);
+      setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
+    }
+  };
+
   const addTextSource = () => {
     const newSource: Source = { 
       id: `txt-${Date.now()}`, 
@@ -469,6 +554,27 @@ const App: React.FC = () => {
 
   const handleSourceDoubleClick = async (source: Source, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (source.isBackground) {
+      const dataUrl = await window.electron.selectFile({
+        filters: [
+          { name: 'Background Media', extensions: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ts'] },
+          { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] },
+          { name: 'Videos', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ts'] }
+        ]
+      });
+      if (dataUrl) {
+        const ext = dataUrl.split('.').pop()?.toLowerCase();
+        const isVideo = ['mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ts'].includes(ext || '');
+        const type = isVideo ? 'video' : 'image';
+        replaceSourceData(source.id, {
+          name: `Background (${isVideo ? 'Video' : 'Image'})`,
+          type,
+          data: dataUrl,
+          playing: isVideo ? true : undefined
+        });
+      }
+      return;
+    }
     if (source.type === 'screen' || source.type === 'window') {
       // Re-open the screen/window selector in the appropriate tab
       const screens = await window.electron.getSources();
@@ -746,7 +852,7 @@ const App: React.FC = () => {
     setRecordElapsed(0);
     showStatus('Starting recording...', 'info');
     try {
-        await window.electron.startFFmpeg({ outputPath: `recording-${Date.now()}.mp4`, isStreaming: false });
+        await window.electron.startFFmpeg({ outputPath: 'recording.mp4', isStreaming: false });
         const mime = getBestSupportedMimeType();
         console.log('Starting MediaRecorder for recording with mimeType:', mime);
 
@@ -772,7 +878,7 @@ const App: React.FC = () => {
         mediaRecorderRef.current = null; 
     } 
     await window.electron.stopFFmpeg();
-    showStatus('Recording saved to Videos folder', 'success');
+    showStatus('Recording saved to Documents/Strima/Recordings', 'success');
   };
 
   const pauseRecording = () => {
@@ -808,6 +914,23 @@ const App: React.FC = () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isThemeMenuOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(event.target as Node)) {
+        setIsWorkspaceMenuOpen(false);
+        setIsCreatingWorkspace(false);
+      }
+    };
+    if (isWorkspaceMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isWorkspaceMenuOpen]);
 
   const selectedSource = previewSources.find(s => s.id === selectedSourceId);
   const selectedOverlay = previewOverlays.find(o => o.id === selectedOverlayId);
@@ -875,9 +998,52 @@ const App: React.FC = () => {
                 {statusMessage.text}
             </div>
           )}
-          <button data-hint="Save the current workspace, scenes and layout configuration" className="icon-btn" onClick={saveWorkspace} title={isSaving ? 'Workspace Saved!' : 'Save Workspace'} style={{ marginRight: '8px' }}>
+          <button data-hint="Save the current workspace, scenes and layout configuration" className="icon-btn" onClick={saveWorkspace} title={isSaving ? 'Workspace Saved!' : 'Save Workspace'} style={{ marginRight: '4px' }}>
             <Save size={20} className={isSaving ? 'animate-pulse' : ''} style={{ color: isSaving ? 'var(--accent-solid)' : 'inherit' }} />
           </button>
+          <div className="theme-selector-container" ref={workspaceMenuRef} style={{ marginRight: '4px' }}>
+            <button
+              data-hint="Switch or create workspaces — workspaces are saved under Documents/Strima/Workspaces"
+              className="icon-btn"
+              onClick={() => { setIsWorkspaceMenuOpen(!isWorkspaceMenuOpen); setIsCreatingWorkspace(false); }}
+              title="Workspace"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 700, color: 'var(--tx-2)' }}
+            >
+              <FolderOpen size={16} />
+              <span style={{ maxWidth: '120px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeWorkspaceName}</span>
+              <ChevronDown size={12} />
+            </button>
+            {isWorkspaceMenuOpen && (
+              <div className="theme-menu" style={{ minWidth: '220px' }}>
+                <div className="menu-group">
+                  <span className="menu-label">Workspace</span>
+                  <div style={{ fontSize: '11px', color: 'var(--tx-2)', padding: '4px 8px 8px', fontWeight: 500 }}>
+                    📁 Documents / Strima / Workspaces / <strong style={{ color: 'var(--tx-1)' }}>{activeWorkspaceName}</strong>
+                  </div>
+                  <button className="menu-opt" onClick={handleOpenWorkspace}>
+                    <FolderOpen size={14} /> Open Workspace…
+                  </button>
+                  <button className="menu-opt" onClick={() => setIsCreatingWorkspace(!isCreatingWorkspace)}>
+                    <Plus size={14} /> New Workspace…
+                  </button>
+                  {isCreatingWorkspace && (
+                    <div style={{ padding: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Workspace name…"
+                        value={newWorkspaceName}
+                        onChange={(e) => setNewWorkspaceName(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleCreateWorkspace(); if (e.key === 'Escape') setIsCreatingWorkspace(false); }}
+                        style={{ background: 'var(--bg-1)', border: '1px solid var(--border)', color: 'var(--tx-1)', padding: '8px 10px', borderRadius: '4px', fontSize: '12px', outline: 'none' }}
+                      />
+                      <button className="btn-mini primary" onClick={handleCreateWorkspace} style={{ justifyContent: 'center' }}>Create</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
           <div className="theme-selector-container" ref={themeMenuRef}>
             <button data-hint="Toggle dark / light theme and change accent colour palette" className="icon-btn" onClick={() => setIsThemeMenuOpen(!isThemeMenuOpen)}>
               {resolvedTheme === 'dark' ? <Moon size={20} /> : <Sun size={20} />}
@@ -948,6 +1114,7 @@ const App: React.FC = () => {
                         const path = await (window as any).electron.selectFile({ filters: [{ name: 'Logos', extensions: ['png', 'jpg', 'jpeg', 'svg', 'webp'] }] });
                         if (path) addOverlay('logo', path);
                     }}><ImageIcon size={18} /><span>Logo</span></button>
+                    <button data-hint="Add a scene background — select an image or video to place behind all layers" className="asset-btn" title="Add Background" onClick={addBackground}><Palette size={18} /><span>Backgd</span></button>
                 </div>
             </aside>
 
@@ -1032,7 +1199,7 @@ const App: React.FC = () => {
                 </div>
                 <div className="column-body">
                     {previewSources.map(source => {
-                        const canEdit = ['screen','window','camera','audio','video','image'].includes(source.type);
+                        const canEdit = ['screen','window','camera','audio','video','image'].includes(source.type) || source.isBackground;
                         return (
                         <div
                             key={source.id}
@@ -1043,7 +1210,8 @@ const App: React.FC = () => {
                             style={{ cursor: canEdit ? 'pointer' : 'default' }}
                         >
                             <div className="row-meta">
-                                {source.type === 'camera' ? <Camera size={14} /> : 
+                                {source.isBackground ? <Palette size={14} /> :
+                                 source.type === 'camera' ? <Camera size={14} /> : 
                                  source.type === 'video' ? <Film size={14} /> : 
                                  source.type === 'audio' ? <Volume2 size={14} /> : 
                                  source.type === 'text' ? <Type size={14} /> :
@@ -1058,7 +1226,7 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                             <div className="row-controls">
-                                {(source.type === 'camera' || source.type === 'video' || source.type === 'image' || source.type === 'pdf' || source.type === 'slides') && (
+                                {(source.type === 'camera' || source.type === 'video' || source.type === 'image' || source.type === 'pdf' || source.type === 'slides') && !source.isBackground && (
                                     <button className="icon-btn xs" onClick={(e) => { e.stopPropagation(); toggleSourceFullscreen(source.id); }}><Maximize2 size={12} /></button>
                                 )}
                                 <button className="icon-btn xs" onClick={(e) => { e.stopPropagation(); toggleVisibility(source.id); }}>
@@ -1312,25 +1480,38 @@ const App: React.FC = () => {
                                 </div>
                             )}
 
-                            <div className="layout-tools" style={{ marginTop: '16px', padding: '0 12px' }}>
-                                <div className="editor-grid" style={{ gap: '4px' }}>
-                                    <button className={`btn-mini ${(!selectedSource.fit || selectedSource.fit === 'fill') ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'fill' })}>Stretch</button>
-                                    <button className={`btn-mini ${selectedSource.fit === 'cover' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'cover' })}>Cover (Center)</button>
-                                    <button className={`btn-mini ${selectedSource.fit === 'contain' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'contain' })}>Contain</button>
+                             {selectedSource.isBackground ? (
+                                <div className="layout-tools" style={{ marginTop: '16px', padding: '0 12px' }}>
+                                    <label className="menu-label">Background Fit</label>
+                                    <div className="editor-grid" style={{ gap: '4px', marginTop: '4px' }}>
+                                        <button className={`btn-mini ${(!selectedSource.fit || selectedSource.fit === 'fill') ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'fill' })}>Stretch</button>
+                                        <button className={`btn-mini ${selectedSource.fit === 'cover' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'cover' })}>Cover (Center)</button>
+                                        <button className={`btn-mini ${selectedSource.fit === 'contain' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'contain' })}>Contain</button>
+                                    </div>
                                 </div>
-                                <div className="editor-grid" style={{ marginTop: '8px', gap: '4px' }}>
-                                    <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 0, y: 0, width: 960, height: 1080 })}>Left Half</button>
-                                    <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 960, y: 0, width: 960, height: 1080 })}>Right Half</button>
-                                    <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 0, y: 0, width: 1920, height: 1080 })}>Full</button>
-                                </div>
-                            </div>
+                            ) : (
+                                <>
+                                    <div className="layout-tools" style={{ marginTop: '16px', padding: '0 12px' }}>
+                                        <div className="editor-grid" style={{ gap: '4px' }}>
+                                            <button className={`btn-mini ${(!selectedSource.fit || selectedSource.fit === 'fill') ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'fill' })}>Stretch</button>
+                                            <button className={`btn-mini ${selectedSource.fit === 'cover' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'cover' })}>Cover (Center)</button>
+                                            <button className={`btn-mini ${selectedSource.fit === 'contain' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'contain' })}>Contain</button>
+                                        </div>
+                                        <div className="editor-grid" style={{ marginTop: '8px', gap: '4px' }}>
+                                            <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 0, y: 0, width: 960, height: 1080 })}>Left Half</button>
+                                            <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 960, y: 0, width: 960, height: 1080 })}>Right Half</button>
+                                            <button className="btn-mini secondary" onClick={() => updateSourceTransform(selectedSource.id, { x: 0, y: 0, width: 1920, height: 1080 })}>Full</button>
+                                        </div>
+                                    </div>
 
-                            <div className="editor-grid" style={{ marginTop: '16px', padding: '0 12px' }}>
-                                <div className="editor-field"><label>X</label><input type="number" value={selectedSource.x} onChange={(e) => updateSourceTransform(selectedSource.id, { x: parseInt(e.target.value) || 0 })} /></div>
-                                <div className="editor-field"><label>Y</label><input type="number" value={selectedSource.y} onChange={(e) => updateSourceTransform(selectedSource.id, { y: parseInt(e.target.value) || 0 })} /></div>
-                                <div className="editor-field"><label>W</label><input type="number" value={selectedSource.width} onChange={(e) => updateSourceTransform(selectedSource.id, { width: parseInt(e.target.value) || 0 })} /></div>
-                                <div className="editor-field"><label>H</label><input type="number" value={selectedSource.height} onChange={(e) => updateSourceTransform(selectedSource.id, { height: parseInt(e.target.value) || 0 })} /></div>
-                            </div>
+                                    <div className="editor-grid" style={{ marginTop: '16px', padding: '0 12px' }}>
+                                        <div className="editor-field"><label>X</label><input type="number" value={selectedSource.x} onChange={(e) => updateSourceTransform(selectedSource.id, { x: parseInt(e.target.value) || 0 })} /></div>
+                                        <div className="editor-field"><label>Y</label><input type="number" value={selectedSource.y} onChange={(e) => updateSourceTransform(selectedSource.id, { y: parseInt(e.target.value) || 0 })} /></div>
+                                        <div className="editor-field"><label>W</label><input type="number" value={selectedSource.width} onChange={(e) => updateSourceTransform(selectedSource.id, { width: parseInt(e.target.value) || 0 })} /></div>
+                                        <div className="editor-field"><label>H</label><input type="number" value={selectedSource.height} onChange={(e) => updateSourceTransform(selectedSource.id, { height: parseInt(e.target.value) || 0 })} /></div>
+                                    </div>
+                                </>
+                            )}
                             
                             <div className="menu-divider" style={{ margin: '16px 12px' }}></div>
                             <div style={{ padding: '0 12px' }}>

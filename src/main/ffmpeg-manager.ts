@@ -50,8 +50,26 @@ export class FFmpegManager {
     this.inputStream = new PassThrough();
 
     let finalPath = outputPath;
-    if (!options.isStreaming && !path.isAbsolute(outputPath)) {
-      finalPath = path.join(app.getPath('videos'), outputPath);
+    if (!options.isStreaming) {
+      if (path.isAbsolute(outputPath)) {
+        finalPath = outputPath;
+      } else {
+        // Build Documents/Strima/Recordings/<timestamp>/recording.mp4
+        const strimaDir = path.join(app.getPath('documents'), 'Strima');
+        const recordingsDir = path.join(strimaDir, 'Recordings');
+        const now = new Date();
+        const pad = (n: number) => n.toString().padStart(2, '0');
+        const folderName = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+        const sessionDir = path.join(recordingsDir, folderName);
+        try {
+          if (!fs.existsSync(strimaDir)) fs.mkdirSync(strimaDir, { recursive: true });
+          if (!fs.existsSync(recordingsDir)) fs.mkdirSync(recordingsDir, { recursive: true });
+          fs.mkdirSync(sessionDir, { recursive: true });
+        } catch (e) {
+          console.error('Failed to create recording folder:', e);
+        }
+        finalPath = path.join(sessionDir, 'recording.mp4');
+      }
     }
 
     const bitrate = options.bitrate || 6000;

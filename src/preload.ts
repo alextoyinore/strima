@@ -9,5 +9,8 @@ contextBridge.exposeInMainWorld('electron', {
   selectFile: (options: any) => ipcRenderer.invoke('select-file', options),
   saveConfig: (config: any) => ipcRenderer.send('save-config', config),
   loadConfig: () => ipcRenderer.invoke('load-config'),
+  openWorkspace: () => ipcRenderer.invoke('open-workspace'),
+  createWorkspace: (name: string) => ipcRenderer.invoke('create-workspace', name),
+  getActiveWorkspaceName: () => ipcRenderer.invoke('get-active-workspace-name'),
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
 });

@@ -7,6 +7,9 @@ export interface IElectronAPI {
   selectFile: (options: { filters: { name: string; extensions: string[] }[] }) => Promise<string | null>;
   saveConfig: (config: any) => void;
   loadConfig: () => Promise<any | null>;
+  openWorkspace: () => Promise<any | null>;
+  createWorkspace: (name: string) => Promise<any | null>;
+  getActiveWorkspaceName: () => Promise<string>;
 }
 
 declare global {

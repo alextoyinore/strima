@@ -27,6 +27,7 @@ interface Source {
     textAlign: 'left' | 'center' | 'right';
   };
   audioDeviceId?: string;
+  isBackground?: boolean;
 }
 
 interface Overlay {
@@ -423,6 +424,7 @@ const Composer: React.FC<ComposerProps> = ({
     let foundId = null;
     for (let i = sources.length - 1; i >= 0; i--) {
         const s = sources[i];
+        if (s.isBackground) continue;
         if (x >= s.x && x <= s.x + s.width && y >= s.y && y <= s.y + s.height) {
             foundId = s.id; break;
         }
@@ -477,7 +479,12 @@ const Composer: React.FC<ComposerProps> = ({
     const ctx = canvas.getContext('2d'); if (!ctx) return;
     const render = () => {
       ctx.fillStyle = 'black'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      sources.forEach(source => {
+      const sortedSources = [...sources].sort((a, b) => {
+        if (a.isBackground && !b.isBackground) return -1;
+        if (!a.isBackground && b.isBackground) return 1;
+        return 0;
+      });
+      sortedSources.forEach(source => {
         if (!source.visible) return;
         if (source.type === 'text') {
             const s = source.style || { fontSize: 64, fontFamily: 'Outfit', color: '#ffffff', bold: true, italic: false, textAlign: 'left' };

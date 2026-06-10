@@ -78,6 +78,93 @@ ipcMain.on('open-external', (event, url) => {
   shell.openExternal(url);
 });
 
+const GLOBAL_CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
+const STRIMA_DIR = path.join(app.getPath('documents'), 'Strima');
+const WORKSPACES_DIR = path.join(STRIMA_DIR, 'Workspaces');
+
+function getActiveWorkspacePath(): string {
+  if (!fs.existsSync(STRIMA_DIR)) fs.mkdirSync(STRIMA_DIR, { recursive: true });
+  if (!fs.existsSync(WORKSPACES_DIR)) fs.mkdirSync(WORKSPACES_DIR, { recursive: true });
+
+  let activePath = '';
+  try {
+    if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
+      const globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
+      activePath = globalConfig.activeWorkspacePath || '';
+    }
+  } catch (e) {
+    console.error('Failed to load global config', e);
+  }
+
+  if (!activePath || !fs.existsSync(activePath)) {
+    activePath = path.join(WORKSPACES_DIR, 'Default');
+    if (!fs.existsSync(activePath)) fs.mkdirSync(activePath, { recursive: true });
+    
+    try {
+      let globalConfig: any = {};
+      if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
+        globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
+      }
+      globalConfig.activeWorkspacePath = activePath;
+      fs.writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify(globalConfig, null, 2));
+    } catch (e) {}
+  }
+
+  return activePath;
+}
+
+function inflateWorkspaceConfig(workspaceConfig: any, activePath: string) {
+  if (!workspaceConfig || !workspaceConfig.scenes) return workspaceConfig;
+  workspaceConfig.scenes = workspaceConfig.scenes.map((scene: any) => {
+    if (!scene.sources) return scene;
+    const sources = scene.sources.map((source: any) => {
+      if (source.data && source.data.startsWith('relative://assets/')) {
+        const fileName = source.data.replace('relative://assets/', '');
+        const absPath = path.join(activePath, 'assets', fileName);
+        return { ...source, data: `media://get-file/${absPath}` };
+      }
+      return source;
+    });
+    const overlays = (scene.overlays || []).map((overlay: any) => {
+      if (overlay.data && overlay.data.startsWith('relative://assets/')) {
+        const fileName = overlay.data.replace('relative://assets/', '');
+        const absPath = path.join(activePath, 'assets', fileName);
+        return { ...overlay, data: `media://get-file/${absPath}` };
+      }
+      return overlay;
+    });
+    return { ...scene, sources, overlays };
+  });
+  return workspaceConfig;
+}
+
+function deflateWorkspaceConfig(workspaceConfig: any, activePath: string) {
+  if (!workspaceConfig || !workspaceConfig.scenes) return workspaceConfig;
+  workspaceConfig.scenes = workspaceConfig.scenes.map((scene: any) => {
+    if (!scene.sources) return scene;
+    const sources = scene.sources.map((source: any) => {
+      const prefix = `media://get-file/${activePath}/assets/`;
+      const prefixEncoded = `media://get-file/${encodeURIComponent(activePath)}/assets/`;
+      if (source.data && (source.data.startsWith(prefix) || source.data.startsWith(prefixEncoded))) {
+        const fileName = source.data.startsWith(prefix) ? source.data.replace(prefix, '') : source.data.replace(prefixEncoded, '');
+        return { ...source, data: `relative://assets/${decodeURIComponent(fileName)}` };
+      }
+      return source;
+    });
+    const overlays = (scene.overlays || []).map((overlay: any) => {
+      const prefix = `media://get-file/${activePath}/assets/`;
+      const prefixEncoded = `media://get-file/${encodeURIComponent(activePath)}/assets/`;
+      if (overlay.data && (overlay.data.startsWith(prefix) || overlay.data.startsWith(prefixEncoded))) {
+        const fileName = overlay.data.startsWith(prefix) ? overlay.data.replace(prefix, '') : overlay.data.replace(prefixEncoded, '');
+        return { ...overlay, data: `relative://assets/${decodeURIComponent(fileName)}` };
+      }
+      return overlay;
+    });
+    return { ...scene, sources, overlays };
+  });
+  return workspaceConfig;
+}
+
 ipcMain.handle('select-file', async (event, options) => {
   const { filePaths } = await dialog.showOpenDialog({
     properties: ['openFile'],
@@ -86,26 +173,198 @@ ipcMain.handle('select-file', async (event, options) => {
   
   if (filePaths && filePaths.length > 0) {
     const filePath = filePaths[0];
-    // Use the custom media:// protocol instead of base64
-    return `media://get-file/${filePath}`;
+    const activePath = getActiveWorkspacePath();
+    const assetsDir = path.join(activePath, 'assets');
+    if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
+    const ext = path.extname(filePath);
+    const base = path.basename(filePath, ext);
+    const safeName = `${Date.now()}_${base.replace(/[^a-zA-Z0-9_-]/g, '_')}${ext}`;
+    const destPath = path.join(assetsDir, safeName);
+    try {
+      fs.copyFileSync(filePath, destPath);
+      return `media://get-file/${destPath}`;
+    } catch (e) {
+      console.error('Failed to copy file to workspace assets', e);
+      return `media://get-file/${filePath}`;
+    }
   }
   return null;
 });
 
-const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
-
 ipcMain.on('save-config', (event, config) => {
-  fs.writeFile(CONFIG_PATH, JSON.stringify(config, null, 2), (err) => {
-    if (err) console.error('Failed to save config:', err);
-  });
+  const activePath = getActiveWorkspacePath();
+  
+  try {
+    let globalConfig: any = {};
+    if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
+      globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
+    }
+    globalConfig.themeMode = config.themeMode;
+    globalConfig.accentColor = config.accentColor;
+    globalConfig.streamingConfig = config.streamingConfig;
+    globalConfig.consoleHeight = config.consoleHeight;
+    globalConfig.sidebarWidth = config.sidebarWidth;
+    globalConfig.assetSidebarWidth = config.assetSidebarWidth;
+    globalConfig.activeWorkspacePath = activePath;
+    fs.writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify(globalConfig, null, 2));
+  } catch (e) {
+    console.error('Failed to save global config:', e);
+  }
+
+  try {
+    const workspaceConfig = {
+      scenes: config.scenes,
+      activeSceneId: config.activeSceneId,
+      isAutoSaveEnabled: config.isAutoSaveEnabled
+    };
+    const deflated = deflateWorkspaceConfig(workspaceConfig, activePath);
+    const workspaceConfigPath = path.join(activePath, 'config.json');
+    fs.writeFileSync(workspaceConfigPath, JSON.stringify(deflated, null, 2));
+  } catch (e) {
+    console.error('Failed to save workspace config:', e);
+  }
 });
 
 ipcMain.handle('load-config', async () => {
-  if (fs.existsSync(CONFIG_PATH)) {
-    const data = fs.readFileSync(CONFIG_PATH, 'utf-8');
-    return JSON.parse(data);
+  const activePath = getActiveWorkspacePath();
+  
+  let globalConfig: any = {};
+  if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
+    try {
+      globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
+    } catch (e) {}
+  }
+
+  let workspaceConfig: any = null;
+  const workspaceConfigPath = path.join(activePath, 'config.json');
+  if (fs.existsSync(workspaceConfigPath)) {
+    try {
+      const data = fs.readFileSync(workspaceConfigPath, 'utf-8');
+      workspaceConfig = inflateWorkspaceConfig(JSON.parse(data), activePath);
+    } catch (e) {
+      console.error('Failed to load workspace config:', e);
+    }
+  }
+
+  return {
+    scenes: workspaceConfig?.scenes || [],
+    activeSceneId: workspaceConfig?.activeSceneId || null,
+    isAutoSaveEnabled: workspaceConfig?.isAutoSaveEnabled !== false,
+    themeMode: globalConfig.themeMode || 'system',
+    accentColor: globalConfig.accentColor || 'slate',
+    streamingConfig: globalConfig.streamingConfig || null,
+    consoleHeight: globalConfig.consoleHeight,
+    sidebarWidth: globalConfig.sidebarWidth,
+    assetSidebarWidth: globalConfig.assetSidebarWidth,
+    activeWorkspacePath
+  };
+});
+
+ipcMain.handle('open-workspace', async () => {
+  const { filePaths } = await dialog.showOpenDialog({
+    title: 'Select Workspace Folder',
+    properties: ['openDirectory'],
+    defaultPath: WORKSPACES_DIR
+  });
+  
+  if (filePaths && filePaths.length > 0) {
+    const selectedPath = filePaths[0];
+    const configPath = path.join(selectedPath, 'config.json');
+    
+    if (!fs.existsSync(configPath)) {
+      const emptyConfig = {
+        scenes: [],
+        activeSceneId: null,
+        isAutoSaveEnabled: true
+      };
+      fs.writeFileSync(configPath, JSON.stringify(emptyConfig, null, 2));
+    }
+    
+    try {
+      let globalConfig: any = {};
+      if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
+        globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
+      }
+      globalConfig.activeWorkspacePath = selectedPath;
+      fs.writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify(globalConfig, null, 2));
+    } catch (e) {}
+    
+    const data = fs.readFileSync(configPath, 'utf-8');
+    const workspaceConfig = inflateWorkspaceConfig(JSON.parse(data), selectedPath);
+    
+    let globalConfig: any = {};
+    if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
+      try {
+        globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
+      } catch (e) {}
+    }
+    
+    return {
+      scenes: workspaceConfig?.scenes || [],
+      activeSceneId: workspaceConfig?.activeSceneId || null,
+      isAutoSaveEnabled: workspaceConfig?.isAutoSaveEnabled !== false,
+      themeMode: globalConfig.themeMode || 'system',
+      accentColor: globalConfig.accentColor || 'slate',
+      streamingConfig: globalConfig.streamingConfig || null,
+      consoleHeight: globalConfig.consoleHeight,
+      sidebarWidth: globalConfig.sidebarWidth,
+      assetSidebarWidth: globalConfig.assetSidebarWidth,
+      activeWorkspacePath: selectedPath
+    };
   }
   return null;
+});
+
+ipcMain.handle('create-workspace', async (event, name) => {
+  if (!name) return null;
+  const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const selectedPath = path.join(WORKSPACES_DIR, safeName);
+  
+  if (!fs.existsSync(selectedPath)) {
+    fs.mkdirSync(selectedPath, { recursive: true });
+  }
+  
+  const configPath = path.join(selectedPath, 'config.json');
+  const emptyConfig = {
+    scenes: [],
+    activeSceneId: null,
+    isAutoSaveEnabled: true
+  };
+  fs.writeFileSync(configPath, JSON.stringify(emptyConfig, null, 2));
+  
+  try {
+    let globalConfig: any = {};
+    if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
+      globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
+    }
+    globalConfig.activeWorkspacePath = selectedPath;
+    fs.writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify(globalConfig, null, 2));
+  } catch (e) {}
+  
+  let globalConfig: any = {};
+  if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
+    try {
+      globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
+    } catch (e) {}
+  }
+  
+  return {
+    scenes: [],
+    activeSceneId: null,
+    isAutoSaveEnabled: true,
+    themeMode: globalConfig.themeMode || 'system',
+    accentColor: globalConfig.accentColor || 'slate',
+    streamingConfig: globalConfig.streamingConfig || null,
+    consoleHeight: globalConfig.consoleHeight,
+    sidebarWidth: globalConfig.sidebarWidth,
+    assetSidebarWidth: globalConfig.assetSidebarWidth,
+    activeWorkspacePath: selectedPath
+  };
+});
+
+ipcMain.handle('get-active-workspace-name', async () => {
+  const activePath = getActiveWorkspacePath();
+  return path.basename(activePath);
 });
 
 app.whenReady().then(() => {
