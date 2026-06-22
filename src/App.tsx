@@ -31,6 +31,10 @@ interface Source {
   };
   audioDeviceId?: string;
   isBackground?: boolean;
+  bgEffect?: {
+    slowZoom?: boolean;
+    blur?: boolean;
+  };
 }
 
 interface Overlay {
@@ -1499,7 +1503,7 @@ const App: React.FC = () => {
                                 </div>
                             )}
 
-                             {selectedSource.isBackground ? (
+                                 {selectedSource.isBackground ? (
                                 <div className="layout-tools" style={{ marginTop: '16px', padding: '0 12px' }}>
                                     <label className="menu-label">Background Fit</label>
                                     <div className="editor-grid" style={{ gap: '4px', marginTop: '4px' }}>
@@ -1507,6 +1511,30 @@ const App: React.FC = () => {
                                         <button className={`btn-mini ${selectedSource.fit === 'cover' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'cover' })}>Cover (Center)</button>
                                         <button className={`btn-mini ${selectedSource.fit === 'contain' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'contain' })}>Contain</button>
                                     </div>
+
+                                    {selectedSource.type === 'image' && (
+                                      <div style={{ marginTop: '14px' }}>
+                                        <label className="menu-label">Image Effects</label>
+                                        <div className="editor-grid" style={{ gap: '4px', marginTop: '6px' }}>
+                                          {(() => {
+                                            const sz = !!selectedSource.bgEffect?.slowZoom;
+                                            const bl = !!selectedSource.bgEffect?.blur;
+                                            const set = (slowZoom: boolean, blur: boolean) => {
+                                              const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, bgEffect: { slowZoom, blur } } : s);
+                                              setPreviewSources(updated);
+                                              setScenes(scenes.map(sc => sc.id === activeSceneId ? { ...sc, sources: updated } : sc));
+                                            };
+                                            return (<>
+                                              <button className={`btn-mini ${!sz && !bl ? 'primary' : 'secondary'}`} onClick={() => set(false, false)}>None</button>
+                                              <button className={`btn-mini ${sz && !bl ? 'primary' : 'secondary'}`} onClick={() => set(true, false)}>Zoom</button>
+                                              <button className={`btn-mini ${!sz && bl ? 'primary' : 'secondary'}`} onClick={() => set(false, true)}>Blur</button>
+                                              <button className={`btn-mini ${sz && bl ? 'primary' : 'secondary'}`} onClick={() => set(true, true)}>Both</button>
+                                            </>);
+                                          })()}
+                                        </div>
+                                      </div>
+                                    )}
+
                                     <div style={{ marginTop: '12px' }}>
                                         <button 
                                             className="btn-ghost"

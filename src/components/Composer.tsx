@@ -28,6 +28,10 @@ interface Source {
   };
   audioDeviceId?: string;
   isBackground?: boolean;
+  bgEffect?: {
+    slowZoom?: boolean;
+    blur?: boolean;
+  };
 }
 
 interface Overlay {
@@ -105,6 +109,7 @@ const Composer: React.FC<ComposerProps> = ({
   const animationFrameRef = useRef<number>();
   const tickerX = useRef(1920);
   const overlayProgress = useRef<Record<string, number>>({});
+  const bgEffectStartTime = useRef<Record<string, number>>({});
 
   const audioContext = useRef<AudioContext>();
   const audioDestination = useRef<MediaStreamAudioDestinationNode>();
@@ -210,6 +215,7 @@ const Composer: React.FC<ComposerProps> = ({
               delete streams.current[id];
               delete videoElements.current[id];
               delete cameraAudioDeviceIds.current[id];
+              delete bgEffectStartTime.current[id];
           }
       });
       Object.keys(audioNodes.current).forEach(id => {
@@ -545,7 +551,28 @@ const Composer: React.FC<ComposerProps> = ({
           if (pdfCanvas) drawSource(source, pdfCanvas, ctx);
           else { ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fillRect(source.x, source.y, source.width, source.height); ctx.fillStyle = 'white'; ctx.font = '24px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Loading Slide...', source.x + source.width / 2, source.y + source.height / 2); }
         } else if (source.type === 'image') {
-          const img = imageElements.current[source.id]; if (img && img.complete) drawSource(source, img, ctx);
+          const img = imageElements.current[source.id];
+          if (img && img.complete) {
+            const fx = source.isBackground ? source.bgEffect : null;
+            const hasEffect = fx && (fx.slowZoom || fx.blur);
+            if (hasEffect) {
+              ctx.save();
+              if (fx!.blur) ctx.filter = 'blur(14px)';
+              if (fx!.slowZoom) {
+                if (!bgEffectStartTime.current[source.id]) bgEffectStartTime.current[source.id] = Date.now();
+                const elapsed = (Date.now() - bgEffectStartTime.current[source.id]) / 1000;
+                const zoom = 1 + 0.15 * ((elapsed % 30) / 30);
+                ctx.translate(960, 540);
+                ctx.scale(zoom, zoom);
+                ctx.translate(-960, -540);
+              }
+              drawSource(source, img, ctx);
+              ctx.restore();
+            } else {
+              if (bgEffectStartTime.current[source.id]) delete bgEffectStartTime.current[source.id];
+              drawSource(source, img, ctx);
+            }
+          }
         } else if (source.type === 'audio') {
           const cover = imageElements.current[source.id + '-cover'];
           if (cover && cover.complete) {

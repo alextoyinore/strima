@@ -260,7 +260,7 @@ ipcMain.handle('load-config', async () => {
     assetSidebarWidth: globalConfig.assetSidebarWidth,
     sourcesWidth: globalConfig.sourcesWidth,
     propertiesWidth: globalConfig.propertiesWidth,
-    activeWorkspacePath
+    activeWorkspacePath: activePath
   };
 });
 
