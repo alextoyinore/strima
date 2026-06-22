@@ -205,6 +205,8 @@ ipcMain.on('save-config', (event, config) => {
     globalConfig.consoleHeight = config.consoleHeight;
     globalConfig.sidebarWidth = config.sidebarWidth;
     globalConfig.assetSidebarWidth = config.assetSidebarWidth;
+    globalConfig.sourcesWidth = config.sourcesWidth;
+    globalConfig.propertiesWidth = config.propertiesWidth;
     globalConfig.activeWorkspacePath = activePath;
     fs.writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify(globalConfig, null, 2));
   } catch (e) {
@@ -256,6 +258,8 @@ ipcMain.handle('load-config', async () => {
     consoleHeight: globalConfig.consoleHeight,
     sidebarWidth: globalConfig.sidebarWidth,
     assetSidebarWidth: globalConfig.assetSidebarWidth,
+    sourcesWidth: globalConfig.sourcesWidth,
+    propertiesWidth: globalConfig.propertiesWidth,
     activeWorkspacePath
   };
 });
@@ -309,6 +313,8 @@ ipcMain.handle('open-workspace', async () => {
       consoleHeight: globalConfig.consoleHeight,
       sidebarWidth: globalConfig.sidebarWidth,
       assetSidebarWidth: globalConfig.assetSidebarWidth,
+      sourcesWidth: globalConfig.sourcesWidth,
+      propertiesWidth: globalConfig.propertiesWidth,
       activeWorkspacePath: selectedPath
     };
   }
@@ -358,6 +364,8 @@ ipcMain.handle('create-workspace', async (event, name) => {
     consoleHeight: globalConfig.consoleHeight,
     sidebarWidth: globalConfig.sidebarWidth,
     assetSidebarWidth: globalConfig.assetSidebarWidth,
+    sourcesWidth: globalConfig.sourcesWidth,
+    propertiesWidth: globalConfig.propertiesWidth,
     activeWorkspacePath: selectedPath
   };
 });
@@ -365,6 +373,52 @@ ipcMain.handle('create-workspace', async (event, name) => {
 ipcMain.handle('get-active-workspace-name', async () => {
   const activePath = getActiveWorkspacePath();
   return path.basename(activePath);
+});
+
+ipcMain.handle('select-background-file', async (event, options) => {
+  const { filePaths } = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: options.filters
+  });
+  
+  if (filePaths && filePaths.length > 0) {
+    const filePath = filePaths[0];
+    const globalAssetsDir = path.join(STRIMA_DIR, 'assets');
+    if (!fs.existsSync(globalAssetsDir)) fs.mkdirSync(globalAssetsDir, { recursive: true });
+    const ext = path.extname(filePath);
+    const base = path.basename(filePath, ext);
+    const safeName = `${Date.now()}_${base.replace(/[^a-zA-Z0-9_-]/g, '_')}${ext}`;
+    const destPath = path.join(globalAssetsDir, safeName);
+    try {
+      fs.copyFileSync(filePath, destPath);
+      return `media://get-file/${destPath}`;
+    } catch (e) {
+      console.error('Failed to copy background asset:', e);
+      return `media://get-file/${filePath}`;
+    }
+  }
+  return null;
+});
+
+ipcMain.handle('get-background-assets', async () => {
+  const globalAssetsDir = path.join(STRIMA_DIR, 'assets');
+  if (!fs.existsSync(globalAssetsDir)) return [];
+  try {
+    const files = fs.readdirSync(globalAssetsDir);
+    return files.map(file => {
+      const absPath = path.join(globalAssetsDir, file);
+      const ext = path.extname(file).toLowerCase();
+      const isVideo = ['.mp4', '.webm', '.mkv', '.avi', '.mov', '.flv', '.wmv', '.ts'].includes(ext);
+      return {
+        name: file,
+        path: `media://get-file/${absPath}`,
+        type: isVideo ? 'video' : 'image'
+      };
+    });
+  } catch (e) {
+    console.error('Failed to get background assets:', e);
+    return [];
+  }
 });
 
 app.whenReady().then(() => {

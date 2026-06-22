@@ -138,6 +138,11 @@ const App: React.FC = () => {
   const [consoleHeight, setConsoleHeight] = useState(400);
   const [sidebarWidth, setSidebarWidth] = useState(200);
   const [assetSidebarWidth, setAssetSidebarWidth] = useState(160);
+  const [sourcesWidth, setSourcesWidth] = useState(250);
+  const [propertiesWidth, setPropertiesWidth] = useState(260);
+  const [backgroundPopupOpen, setBackgroundPopupOpen] = useState(false);
+  const [backgroundPopupPos, setBackgroundPopupPos] = useState({ x: 350, y: 150 });
+  const [savedBackgrounds, setSavedBackgrounds] = useState<{ name: string; path: string; type: 'video' | 'image' }[]>([]);
   const [isPdfGridOpen, setIsPdfGridOpen] = useState(false);
   const [pdfGridSourceId, setPdfGridSourceId] = useState<string | null>(null);
   const [sourceEditModal, setSourceEditModal] = useState<{ sourceId: string; mode: SourceEditMode } | null>(null);
@@ -154,7 +159,9 @@ const App: React.FC = () => {
   const [isCreatingWorkspace, setIsCreatingWorkspace] = useState(false);
   const [newWorkspaceName, setNewWorkspaceName] = useState('');
   const workspaceMenuRef = useRef<HTMLDivElement>(null);
-  const isResizingRef = useRef<'console' | 'sidebar' | 'asset-sidebar' | null>(null);
+  const isResizingRef = useRef<'console' | 'sidebar' | 'asset-sidebar' | 'sources-panel' | 'properties-panel' | null>(null);
+  const sidebarWidthRef = useRef(sidebarWidth);
+  sidebarWidthRef.current = sidebarWidth;
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const composerStreamRef = useRef<MediaStream | null>(null);
@@ -201,6 +208,8 @@ const App: React.FC = () => {
     if (config.consoleHeight) setConsoleHeight(config.consoleHeight);
     if (config.sidebarWidth) setSidebarWidth(config.sidebarWidth);
     if (config.assetSidebarWidth) setAssetSidebarWidth(config.assetSidebarWidth);
+    if (config.sourcesWidth) setSourcesWidth(config.sourcesWidth);
+    if (config.propertiesWidth) setPropertiesWidth(config.propertiesWidth);
     if (config.activeWorkspacePath) {
         const parts = config.activeWorkspacePath.replace(/\\/g, '/').split('/');
         setActiveWorkspaceName(parts[parts.length - 1] || 'Default');
@@ -240,7 +249,7 @@ const App: React.FC = () => {
     setIsSaving(true);
     window.electron.saveConfig({ 
       scenes, activeSceneId, streamingConfig, themeMode, accentColor, isAutoSaveEnabled,
-      consoleHeight, sidebarWidth, assetSidebarWidth 
+      consoleHeight, sidebarWidth, assetSidebarWidth, sourcesWidth, propertiesWidth
     });
     setTimeout(() => {
         setIsSaving(false);
@@ -283,10 +292,10 @@ const App: React.FC = () => {
     if (isAutoSaveEnabled) {
       window.electron.saveConfig({ 
         scenes, activeSceneId, streamingConfig, themeMode, accentColor, isAutoSaveEnabled,
-        consoleHeight, sidebarWidth, assetSidebarWidth 
+        consoleHeight, sidebarWidth, assetSidebarWidth, sourcesWidth, propertiesWidth
       });
     }
-  }, [scenes, activeSceneId, streamingConfig, themeMode, accentColor, isAutoSaveEnabled, consoleHeight, sidebarWidth, assetSidebarWidth]);
+  }, [scenes, activeSceneId, streamingConfig, themeMode, accentColor, isAutoSaveEnabled, consoleHeight, sidebarWidth, assetSidebarWidth, sourcesWidth, propertiesWidth]);
 
   useEffect(() => {
     const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
@@ -311,6 +320,12 @@ const App: React.FC = () => {
       } else if (isResizingRef.current === 'asset-sidebar') {
         const newWidth = e.clientX;
         if (newWidth > 80 && newWidth < 400) setAssetSidebarWidth(newWidth);
+      } else if (isResizingRef.current === 'sources-panel') {
+        const newWidth = e.clientX - sidebarWidthRef.current;
+        if (newWidth > 150 && newWidth < 600) setSourcesWidth(newWidth);
+      } else if (isResizingRef.current === 'properties-panel') {
+        const newWidth = window.innerWidth - e.clientX;
+        if (newWidth > 200 && newWidth < 600) setPropertiesWidth(newWidth);
       }
     };
     const handleMouseUp = () => {
@@ -455,7 +470,7 @@ const App: React.FC = () => {
   };
 
   const addBackground = async () => {
-    const dataUrl = await window.electron.selectFile({
+    const dataUrl = await window.electron.selectBackgroundFile({
       filters: [
         { name: 'Background Media', extensions: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ts'] },
         { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] },
@@ -555,7 +570,7 @@ const App: React.FC = () => {
   const handleSourceDoubleClick = async (source: Source, e: React.MouseEvent) => {
     e.stopPropagation();
     if (source.isBackground) {
-      const dataUrl = await window.electron.selectFile({
+      const dataUrl = await window.electron.selectBackgroundFile({
         filters: [
           { name: 'Background Media', extensions: ['jpg', 'jpeg', 'png', 'webp', 'mp4', 'webm', 'mkv', 'avi', 'mov', 'flv', 'wmv', 'ts'] },
           { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] },
@@ -1171,7 +1186,7 @@ const App: React.FC = () => {
         <div className="resizer-h" onMouseDown={() => { isResizingRef.current = 'console'; document.body.style.cursor = 'ns-resize'; document.body.style.userSelect = 'none'; }}></div>
 
         <section className="bottom-console" style={{ height: consoleHeight }}>
-            <div className="console-column" style={{ width: sidebarWidth }}>
+            <div className="console-column" style={{ width: sidebarWidth, flexShrink: 0 }}>
                 <div className="column-header-with-controls">
                     <h3 className="column-title">Scenes</h3>
                     <button data-hint="Create a new empty scene — keyboard shortcut: press a number key to switch" className="icon-btn xs accent" onClick={createScene} title="New Scene"><Plus size={16} /></button>
@@ -1189,7 +1204,7 @@ const App: React.FC = () => {
 
             <div className="resizer-v" onMouseDown={() => { isResizingRef.current = 'sidebar'; document.body.style.cursor = 'ew-resize'; document.body.style.userSelect = 'none'; }}></div>
 
-            <div className="console-column flex-1">
+            <div className="console-column" style={{ width: sourcesWidth, flexShrink: 0 }}>
                 <div className="column-header-with-controls">
                     <h3 className="column-title">Sources</h3>
                     <div className="overlay-transitions">
@@ -1240,6 +1255,8 @@ const App: React.FC = () => {
                 </div>
             </div>
 
+            <div className="resizer-v" onMouseDown={() => { isResizingRef.current = 'sources-panel'; document.body.style.cursor = 'ew-resize'; document.body.style.userSelect = 'none'; }}></div>
+
             <div className="console-column flex-1">
                 <h3 className="column-title">Mixer & Overlays</h3>
                 <div className="column-body">
@@ -1272,7 +1289,9 @@ const App: React.FC = () => {
                 </div>
             </div>
 
-            <div className="console-column" style={{ width: 240 }}>
+            <div className="resizer-v" onMouseDown={() => { isResizingRef.current = 'properties-panel'; document.body.style.cursor = 'ew-resize'; document.body.style.userSelect = 'none'; }}></div>
+
+            <div className="console-column" style={{ width: propertiesWidth, flexShrink: 0 }}>
                 <h3 className="column-title">Properties</h3>
                 <div className="column-body">
                     {selectedSource ? (
@@ -1487,6 +1506,19 @@ const App: React.FC = () => {
                                         <button className={`btn-mini ${(!selectedSource.fit || selectedSource.fit === 'fill') ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'fill' })}>Stretch</button>
                                         <button className={`btn-mini ${selectedSource.fit === 'cover' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'cover' })}>Cover (Center)</button>
                                         <button className={`btn-mini ${selectedSource.fit === 'contain' ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'contain' })}>Contain</button>
+                                    </div>
+                                    <div style={{ marginTop: '12px' }}>
+                                        <button 
+                                            className="btn-ghost"
+                                            onClick={async () => {
+                                                const assets = await window.electron.getBackgroundAssets();
+                                                setSavedBackgrounds(assets);
+                                                setBackgroundPopupOpen(true);
+                                            }}
+                                        >
+                                            <FolderOpen size={14} />
+                                            <span>Saved Backgrounds…</span>
+                                        </button>
                                     </div>
                                 </div>
                             ) : (
@@ -2178,6 +2210,89 @@ const App: React.FC = () => {
                 </p>
                 <p style={{ margin: '0', fontSize: '12px', opacity: 0.5 }}>© 2026 Alexander Ore. All rights reserved.</p>
             </div>
+          </div>
+        </div>
+      )}
+      {backgroundPopupOpen && (
+        <div 
+          className="draggable-popup" 
+          style={{ 
+            position: 'fixed', 
+            left: `${backgroundPopupPos.x}px`, 
+            top: `${backgroundPopupPos.y}px`, 
+            width: '400px', 
+            height: '350px', 
+            zIndex: 999, 
+            display: 'flex', 
+            flexDirection: 'column' 
+          }}
+        >
+          <div 
+            className="popup-header" 
+            style={{ cursor: 'move' }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const startX = e.clientX - backgroundPopupPos.x;
+              const startY = e.clientY - backgroundPopupPos.y;
+              
+              const handleMouseMove = (moveEvent: MouseEvent) => {
+                setBackgroundPopupPos({
+                  x: Math.max(0, Math.min(window.innerWidth - 400, moveEvent.clientX - startX)),
+                  y: Math.max(0, Math.min(window.innerHeight - 350, moveEvent.clientY - startY))
+                });
+              };
+              
+              const handleMouseUp = () => {
+                window.removeEventListener('mousemove', handleMouseMove);
+                window.removeEventListener('mouseup', handleMouseUp);
+              };
+              
+              window.addEventListener('mousemove', handleMouseMove);
+              window.addEventListener('mouseup', handleMouseUp);
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <Palette size={14} style={{ color: 'var(--accent-solid)' }} />
+              <span>Saved Backgrounds</span>
+            </div>
+            <button onClick={() => setBackgroundPopupOpen(false)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><X size={14} /></button>
+          </div>
+          <div className="popup-body">
+            {savedBackgrounds.length === 0 ? (
+              <div className="empty-state" style={{ height: '100%', padding: '20px' }}>
+                <Palette size={32} />
+                <p style={{ marginTop: '8px' }}>No saved background assets</p>
+                <span style={{ fontSize: '10px', opacity: 0.6 }}>Add a background to save it here automatically</span>
+              </div>
+            ) : (
+              <div className="background-assets-grid">
+                {savedBackgrounds.map((bg) => (
+                  <div 
+                    key={bg.path} 
+                    className="bg-asset-item"
+                    onClick={() => {
+                      if (selectedSourceId) {
+                        replaceSourceData(selectedSourceId, {
+                          name: `Background (${bg.type === 'video' ? 'Video' : 'Image'})`,
+                          type: bg.type,
+                          data: bg.path,
+                          playing: bg.type === 'video' ? true : undefined
+                        });
+                      }
+                    }}
+                  >
+                    <div style={{ position: 'relative', width: '100%', height: '80px', backgroundColor: '#000', overflow: 'hidden' }}>
+                      {bg.type === 'video' ? (
+                        <video src={bg.path} muted style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        <img src={bg.path} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      )}
+                    </div>
+                    <span className="bg-asset-name" title={bg.name}>{bg.name.substring(bg.name.indexOf('_') + 1)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

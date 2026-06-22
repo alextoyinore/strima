@@ -13,4 +13,6 @@ contextBridge.exposeInMainWorld('electron', {
   createWorkspace: (name: string) => ipcRenderer.invoke('create-workspace', name),
   getActiveWorkspaceName: () => ipcRenderer.invoke('get-active-workspace-name'),
   openExternal: (url: string) => ipcRenderer.send('open-external', url),
+  selectBackgroundFile: (options: any) => ipcRenderer.invoke('select-background-file', options),
+  getBackgroundAssets: () => ipcRenderer.invoke('get-background-assets'),
 });

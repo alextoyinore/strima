@@ -731,3 +731,76 @@ body {
   letter-spacing: 0.5px;
 }
 
+/* Draggable Background Popup styling */
+.draggable-popup {
+  background-color: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  overflow: hidden;
+}
+
+.popup-header {
+  background-color: rgba(0, 0, 0, 0.2);
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  color: var(--tx-2);
+  letter-spacing: 1px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.popup-header button {
+  background: none;
+  border: none;
+  color: var(--tx-2);
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.popup-header button:hover {
+  color: var(--tx-1);
+}
+
+.popup-body {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.background-assets-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.bg-asset-item {
+  background-color: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+}
+
+.bg-asset-item:hover {
+  border-color: var(--accent-solid);
+  transform: translateY(-2px);
+}
+
+.bg-asset-name {
+  font-size: 10px;
+  padding: 6px;
+  color: var(--tx-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

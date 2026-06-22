@@ -10,6 +10,8 @@ export interface IElectronAPI {
   openWorkspace: () => Promise<any | null>;
   createWorkspace: (name: string) => Promise<any | null>;
   getActiveWorkspaceName: () => Promise<string>;
+  selectBackgroundFile: (options: { filters: { name: string; extensions: string[] }[] }) => Promise<string | null>;
+  getBackgroundAssets: () => Promise<{ name: string; path: string; type: 'video' | 'image' }[]>;
 }
 
 declare global {
