@@ -1,8 +1,8 @@
 export interface IElectronAPI {
   getSources: () => Promise<Electron.DesktopCapturerSource[]>;
-  startFFmpeg: (options: { outputPath?: string; isStreaming: boolean; streamUrl?: string }) => Promise<boolean>;
-  stopFFmpeg: () => Promise<boolean>;
-  sendChunk: (chunk: ArrayBuffer) => void;
+  startFFmpeg: (options: { id?: string; outputPath?: string; isStreaming: boolean; streamUrl?: string }) => Promise<boolean>;
+  stopFFmpeg: (id?: string) => Promise<boolean>;
+  sendChunk: (chunk: ArrayBuffer, id?: string) => void;
   windowControl: (command: 'minimize' | 'maximize' | 'close') => void;
   selectFile: (options: { filters: { name: string; extensions: string[] }[] }) => Promise<string | null>;
   saveConfig: (config: any) => void;
