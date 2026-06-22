@@ -383,7 +383,7 @@ ipcMain.handle('select-background-file', async (event, options) => {
   
   if (filePaths && filePaths.length > 0) {
     const filePath = filePaths[0];
-    const globalAssetsDir = path.join(STRIMA_DIR, 'assets');
+    const globalAssetsDir = path.join(STRIMA_DIR, 'Assets');
     if (!fs.existsSync(globalAssetsDir)) fs.mkdirSync(globalAssetsDir, { recursive: true });
     const ext = path.extname(filePath);
     const base = path.basename(filePath, ext);
@@ -401,7 +401,7 @@ ipcMain.handle('select-background-file', async (event, options) => {
 });
 
 ipcMain.handle('get-background-assets', async () => {
-  const globalAssetsDir = path.join(STRIMA_DIR, 'assets');
+  const globalAssetsDir = path.join(STRIMA_DIR, 'Assets');
   if (!fs.existsSync(globalAssetsDir)) return [];
   try {
     const files = fs.readdirSync(globalAssetsDir);
@@ -419,6 +419,20 @@ ipcMain.handle('get-background-assets', async () => {
     console.error('Failed to get background assets:', e);
     return [];
   }
+});
+
+ipcMain.handle('delete-background-asset', async (event, fileName) => {
+  const globalAssetsDir = path.join(STRIMA_DIR, 'Assets');
+  const filePath = path.join(globalAssetsDir, fileName);
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+      return true;
+    }
+  } catch (e) {
+    console.error('Failed to delete background asset:', e);
+  }
+  return false;
 });
 
 app.whenReady().then(() => {

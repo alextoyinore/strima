@@ -2287,6 +2287,22 @@ const App: React.FC = () => {
                       ) : (
                         <img src={bg.path} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       )}
+                      <button 
+                        className="bg-asset-delete-btn"
+                        title="Delete background asset"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (confirm(`Are you sure you want to delete this background asset?`)) {
+                            const success = await window.electron.deleteBackgroundAsset(bg.name);
+                            if (success) {
+                              const assets = await window.electron.getBackgroundAssets();
+                              setSavedBackgrounds(assets);
+                            }
+                          }
+                        }}
+                      >
+                        <Trash2 size={12} />
+                      </button>
                     </div>
                     <span className="bg-asset-name" title={bg.name}>{bg.name.substring(bg.name.indexOf('_') + 1)}</span>
                   </div>

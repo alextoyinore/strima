@@ -308,39 +308,88 @@ const Composer: React.FC<ComposerProps> = ({
           } catch (e) { console.error('Source error:', e); }
         }
 
-        if (source.type === 'image' && source.data && !imageElements.current[source.id]) {
-          const img = new Image(); img.src = source.data; img.crossOrigin = 'anonymous';
-          imageElements.current[source.id] = img;
+        if (source.type === 'image' && source.data) {
+          const img = imageElements.current[source.id];
+          if (!img || img.getAttribute('data-src') !== source.data) {
+            const newImg = new Image();
+            newImg.src = source.data;
+            newImg.crossOrigin = 'anonymous';
+            newImg.setAttribute('data-src', source.data);
+            imageElements.current[source.id] = newImg;
+          }
         }
 
-        if (source.type === 'video' && source.data && !videoElements.current[source.id]) {
-            const video = document.createElement('video');
-            video.src = source.data; video.crossOrigin = 'anonymous'; video.loop = true; video.muted = false; video.volume = 1.0; video.setAttribute('playsinline', 'true');
-            if (source.playing !== false) video.play().catch(e => console.error('Video play error:', e));
-            videoElements.current[source.id] = video;
+        if (source.type === 'video' && source.data) {
+          const video = videoElements.current[source.id];
+          if (!video || video.getAttribute('data-src') !== source.data) {
+            if (video) {
+              video.pause();
+              if (audioNodes.current[source.id]) {
+                audioNodes.current[source.id].source.disconnect();
+                audioNodes.current[source.id].gain.disconnect();
+                delete audioNodes.current[source.id];
+              }
+            }
+            const newVideo = document.createElement('video');
+            newVideo.src = source.data;
+            newVideo.crossOrigin = 'anonymous';
+            newVideo.loop = true;
+            newVideo.muted = false;
+            newVideo.volume = 1.0;
+            newVideo.setAttribute('playsinline', 'true');
+            newVideo.setAttribute('data-src', source.data);
+            if (source.playing !== false) newVideo.play().catch(e => console.error('Video play error:', e));
+            videoElements.current[source.id] = newVideo;
             if (audioContext.current && audioDestination.current) {
-                const sourceNode = audioContext.current.createMediaElementSource(video);
-                const gainNode = audioContext.current.createGain(); gainNode.gain.value = source.volume ?? 1.0;
-                sourceNode.connect(gainNode); gainNode.connect(audioDestination.current); gainNode.connect(audioContext.current.destination);
+                const sourceNode = audioContext.current.createMediaElementSource(newVideo);
+                const gainNode = audioContext.current.createGain();
+                gainNode.gain.value = source.volume ?? 1.0;
+                sourceNode.connect(gainNode);
+                gainNode.connect(audioDestination.current);
+                gainNode.connect(audioContext.current.destination);
                 audioNodes.current[source.id] = { source: sourceNode, gain: gainNode };
             }
+          }
         }
 
-        if (source.type === 'audio' && source.data && !audioElements.current[source.id]) {
-            const audio = new Audio(source.data); audio.loop = true; audio.crossOrigin = 'anonymous';
-            if (source.playing !== false) audio.play().catch(e => console.error('Audio play error:', e));
-            audioElements.current[source.id] = audio;
+        if (source.type === 'audio' && source.data) {
+          const audio = audioElements.current[source.id];
+          if (!audio || audio.getAttribute('data-src') !== source.data) {
+            if (audio) {
+              audio.pause();
+              if (audioNodes.current[source.id]) {
+                audioNodes.current[source.id].source.disconnect();
+                audioNodes.current[source.id].gain.disconnect();
+                delete audioNodes.current[source.id];
+              }
+            }
+            const newAudio = new Audio(source.data);
+            newAudio.loop = true;
+            newAudio.crossOrigin = 'anonymous';
+            newAudio.setAttribute('data-src', source.data);
+            if (source.playing !== false) newAudio.play().catch(e => console.error('Audio play error:', e));
+            audioElements.current[source.id] = newAudio;
             if (audioContext.current && audioDestination.current) {
-                const sourceNode = audioContext.current.createMediaElementSource(audio);
-                const gainNode = audioContext.current.createGain(); gainNode.gain.value = source.volume ?? 1.0;
-                sourceNode.connect(gainNode); gainNode.connect(audioDestination.current); gainNode.connect(audioContext.current.destination);
+                const sourceNode = audioContext.current.createMediaElementSource(newAudio);
+                const gainNode = audioContext.current.createGain();
+                gainNode.gain.value = source.volume ?? 1.0;
+                sourceNode.connect(gainNode);
+                gainNode.connect(audioDestination.current);
+                gainNode.connect(audioContext.current.destination);
                 audioNodes.current[source.id] = { source: sourceNode, gain: gainNode };
             }
+          }
         }
 
-        if (source.type === 'audio' && source.cover && !imageElements.current[source.id + '-cover']) {
-            const img = new Image(); img.src = source.cover; img.crossOrigin = 'anonymous';
-            imageElements.current[source.id + '-cover'] = img;
+        if (source.type === 'audio' && source.cover) {
+          const cover = imageElements.current[source.id + '-cover'];
+          if (!cover || cover.getAttribute('data-src') !== source.cover) {
+            const newCover = new Image();
+            newCover.src = source.cover;
+            newCover.crossOrigin = 'anonymous';
+            newCover.setAttribute('data-src', source.cover);
+            imageElements.current[source.id + '-cover'] = newCover;
+          }
         }
       }
 
