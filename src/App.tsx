@@ -35,6 +35,7 @@ interface Source {
     slowZoom?: boolean;
     blur?: boolean;
   };
+  refId?: string;
 }
 
 interface Overlay {
@@ -69,6 +70,7 @@ interface Overlay {
   subtitleY?: number;
   subtitleWidth?: number;
   subtitleHeight?: number;
+  refId?: string;
 }
 
 interface Scene {
@@ -951,8 +953,256 @@ const App: React.FC = () => {
     };
   }, [isWorkspaceMenuOpen]);
 
-  const selectedSource = previewSources.find(s => s.id === selectedSourceId);
-  const selectedOverlay = previewOverlays.find(o => o.id === selectedOverlayId);
+  const [contextMenu, setContextMenu] = useState<{
+    x: number;
+    y: number;
+    type: 'source' | 'overlay' | 'scene' | 'sources-panel' | 'overlays-panel';
+    targetId?: string;
+  } | null>(null);
+
+  const [clipboard, setClipboard] = useState<{
+    type: 'source' | 'overlay';
+    item: any;
+    copyType: 'full' | 'reference';
+  } | null>(null);
+
+  useEffect(() => {
+    const handleCloseMenu = () => setContextMenu(null);
+    window.addEventListener('click', handleCloseMenu);
+    return () => window.removeEventListener('click', handleCloseMenu);
+  }, []);
+
+  const resolveSource = useCallback((source: Source): Source => {
+    if (!source.refId) return source;
+    for (const sc of scenes) {
+      const orig = sc.sources.find(s => s.id === source.refId);
+      if (orig) {
+        const resolvedOrig = resolveSource(orig);
+        const baseName = resolvedOrig.name;
+        const nameSuffix = baseName.endsWith(' (Ref)') ? '' : ' (Ref)';
+        return {
+          ...resolvedOrig,
+          id: source.id,
+          refId: source.refId,
+          x: source.x,
+          y: source.y,
+          width: source.width,
+          height: source.height,
+          visible: source.visible,
+          name: baseName + nameSuffix
+        };
+      }
+    }
+    return source;
+  }, [scenes]);
+
+  const resolveOverlay = useCallback((overlay: Overlay): Overlay => {
+    if (!overlay.refId) return overlay;
+    for (const sc of scenes) {
+      const orig = sc.overlays.find(o => o.id === overlay.refId);
+      if (orig) {
+        const resolvedOrig = resolveOverlay(orig);
+        return {
+          ...resolvedOrig,
+          id: overlay.id,
+          refId: overlay.refId,
+          x: overlay.x ?? resolvedOrig.x,
+          y: overlay.y ?? resolvedOrig.y,
+          width: overlay.width ?? resolvedOrig.width,
+          height: overlay.height ?? resolvedOrig.height,
+          visible: overlay.visible,
+        };
+      }
+    }
+    return overlay;
+  }, [scenes]);
+
+  const resolvedPreviewSources = previewSources.map(s => resolveSource(s));
+  const resolvedPreviewOverlays = previewOverlays.map(o => resolveOverlay(o));
+  const resolvedProgramSources = programSources.map(s => resolveSource(s));
+  const resolvedProgramOverlays = programOverlays.map(o => resolveOverlay(o));
+
+  const rawSelectedSource = previewSources.find(s => s.id === selectedSourceId);
+  const selectedSource = rawSelectedSource ? resolveSource(rawSelectedSource) : undefined;
+  const rawSelectedOverlay = previewOverlays.find(o => o.id === selectedOverlayId);
+  const selectedOverlay = rawSelectedOverlay ? resolveOverlay(rawSelectedOverlay) : undefined;
+
+  const copyItem = (type: 'source' | 'overlay', item: any, copyType: 'full' | 'reference') => {
+    setClipboard({ type, item, copyType });
+  };
+
+  const pasteToScene = (sceneId: string) => {
+    if (!clipboard) return;
+    const targetScene = scenes.find(s => s.id === sceneId);
+    if (!targetScene) return;
+
+    if (clipboard.type === 'source') {
+      let newSource: Source;
+      const baseId = `source-${Date.now()}`;
+      if (clipboard.copyType === 'full') {
+        const resolved = resolveSource(clipboard.item);
+        newSource = {
+          ...resolved,
+          id: baseId,
+          name: `${resolved.name} (Copy)`,
+          refId: undefined,
+          x: resolved.x + 20,
+          y: resolved.y + 20,
+        };
+      } else {
+        const targetRefId = clipboard.item.refId || clipboard.item.id;
+        const resolved = resolveSource(clipboard.item);
+        newSource = {
+          ...resolved,
+          id: baseId,
+          name: `${resolved.name} (Ref)`,
+          refId: targetRefId,
+          x: clipboard.item.x + 20,
+          y: clipboard.item.y + 20,
+          visible: true,
+        };
+      }
+
+      const updatedSources = [...targetScene.sources, newSource];
+      setScenes(scenes.map(s => s.id === sceneId ? { ...s, sources: updatedSources } : s));
+      if (sceneId === activeSceneId) {
+        setPreviewSources(updatedSources);
+      }
+    } else if (clipboard.type === 'overlay') {
+      let newOverlay: Overlay;
+      const baseId = `overlay-${Date.now()}`;
+      if (clipboard.copyType === 'full') {
+        const resolved = resolveOverlay(clipboard.item);
+        newOverlay = {
+          ...resolved,
+          id: baseId,
+          title: `${resolved.title} (Copy)`,
+          refId: undefined,
+          x: (resolved.x ?? 0) + 20,
+          y: (resolved.y ?? 0) + 20,
+        };
+      } else {
+        const targetRefId = clipboard.item.refId || clipboard.item.id;
+        const resolved = resolveOverlay(clipboard.item);
+        newOverlay = {
+          ...resolved,
+          id: baseId,
+          title: `${resolved.title} (Ref)`,
+          refId: targetRefId,
+          x: (clipboard.item.x ?? 0) + 20,
+          y: (clipboard.item.y ?? 0) + 20,
+          visible: true,
+        };
+      }
+
+      const updatedOverlays = [...targetScene.overlays, newOverlay];
+      setScenes(scenes.map(s => s.id === sceneId ? { ...s, overlays: updatedOverlays } : s));
+      if (sceneId === activeSceneId) {
+        setPreviewOverlays(updatedOverlays);
+      }
+    }
+  };
+
+  const renderContextMenuContent = () => {
+    if (!contextMenu) return null;
+
+    const { type, targetId } = contextMenu;
+
+    if (type === 'source') {
+      const source = previewSources.find(s => s.id === targetId);
+      if (!source) return null;
+      return (
+        <>
+          <div className="custom-context-menu-item" onClick={() => { copyItem('source', source, 'full'); setContextMenu(null); }}>
+             <span>Full Copy</span>
+          </div>
+          <div className="custom-context-menu-item" onClick={() => { copyItem('source', source, 'reference'); setContextMenu(null); }}>
+             <span>Reference Copy</span>
+          </div>
+          <div className="custom-context-menu-divider" />
+          <div className="custom-context-menu-item" onClick={() => { removeSource(source.id); setContextMenu(null); }} style={{ color: 'var(--accent-solid)' }}>
+             <span>Delete</span>
+          </div>
+        </>
+      );
+    }
+
+    if (type === 'overlay') {
+      const overlay = previewOverlays.find(o => o.id === targetId);
+      if (!overlay) return null;
+      return (
+        <>
+          <div className="custom-context-menu-item" onClick={() => { copyItem('overlay', overlay, 'full'); setContextMenu(null); }}>
+             <span>Full Copy</span>
+          </div>
+          <div className="custom-context-menu-item" onClick={() => { copyItem('overlay', overlay, 'reference'); setContextMenu(null); }}>
+             <span>Reference Copy</span>
+          </div>
+          <div className="custom-context-menu-divider" />
+          <div className="custom-context-menu-item" onClick={() => { removeOverlay(overlay.id); setContextMenu(null); }} style={{ color: 'var(--accent-solid)' }}>
+             <span>Delete</span>
+          </div>
+        </>
+      );
+    }
+
+    if (type === 'sources-panel') {
+      const hasCopiedSource = clipboard?.type === 'source';
+      return (
+        <div 
+          className={`custom-context-menu-item ${!hasCopiedSource ? 'disabled' : ''}`} 
+          onClick={() => { if (hasCopiedSource) { pasteToScene(activeSceneId); } setContextMenu(null); }}
+        >
+          <span>Paste Source</span>
+        </div>
+      );
+    }
+
+    if (type === 'overlays-panel') {
+      const hasCopiedOverlay = clipboard?.type === 'overlay';
+      return (
+        <div 
+          className={`custom-context-menu-item ${!hasCopiedOverlay ? 'disabled' : ''}`} 
+          onClick={() => { if (hasCopiedOverlay) { pasteToScene(activeSceneId); } setContextMenu(null); }}
+        >
+          <span>Paste Overlay</span>
+        </div>
+      );
+    }
+
+    if (type === 'scene') {
+      const scene = scenes.find(s => s.id === targetId);
+      if (!scene) return null;
+      const hasCopiedSource = clipboard?.type === 'source';
+      const hasCopiedOverlay = clipboard?.type === 'overlay';
+      return (
+        <>
+          <div 
+            className={`custom-context-menu-item ${!hasCopiedSource ? 'disabled' : ''}`} 
+            onClick={() => { if (hasCopiedSource) { pasteToScene(scene.id); } setContextMenu(null); }}
+          >
+            <span>Paste Copied Source</span>
+          </div>
+          <div 
+            className={`custom-context-menu-item ${!hasCopiedOverlay ? 'disabled' : ''}`} 
+            onClick={() => { if (hasCopiedOverlay) { pasteToScene(scene.id); } setContextMenu(null); }}
+          >
+            <span>Paste Copied Overlay</span>
+          </div>
+          {scenes.length > 1 && (
+            <>
+              <div className="custom-context-menu-divider" />
+              <div className="custom-context-menu-item" onClick={() => { deleteScene(scene.id); setContextMenu(null); }} style={{ color: 'var(--accent-solid)' }}>
+                <span>Delete Scene</span>
+              </div>
+            </>
+          )}
+        </>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div className={`app-container theme-${resolvedTheme} accent-${accentColor}`}>
@@ -1155,8 +1405,8 @@ const App: React.FC = () => {
                     </div>
                     <div className="monitor-view">
                         <Composer 
-                            sources={previewSources} 
-                            overlays={previewOverlays} 
+                            sources={resolvedPreviewSources} 
+                            overlays={resolvedPreviewOverlays} 
                             interactive={true}
                             showSafeAreas={showSafeAreas}
                             showGrid={showGrid}
@@ -1177,8 +1427,8 @@ const App: React.FC = () => {
                     </div>
                     <div className="monitor-view">
                         <Composer 
-                            sources={programSources} 
-                            overlays={programOverlays} 
+                            sources={resolvedProgramSources} 
+                            overlays={resolvedProgramOverlays} 
                             onStreamCreated={handleLiveStreamCreated} 
                             micStream={micStreamRef.current}
                         />
@@ -1197,7 +1447,21 @@ const App: React.FC = () => {
                 </div>
                 <div className="column-body">
                     {scenes.map(scene => (
-                        <div key={scene.id} className={`scene-row ${activeSceneId === scene.id ? 'active' : ''}`} onClick={() => switchScene(scene.id)}>
+                        <div 
+                            key={scene.id} 
+                            className={`scene-row ${activeSceneId === scene.id ? 'active' : ''}`} 
+                            onClick={() => switchScene(scene.id)}
+                            onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setContextMenu({
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                    type: 'scene',
+                                    targetId: scene.id
+                                });
+                            }}
+                        >
                             <Layers size={14} className="row-icon" />
                             <span className="row-label">{scene.name}</span>
                             <button className="row-action" onClick={(e) => { e.stopPropagation(); deleteScene(scene.id); }}><Trash2 size={12} /></button>
@@ -1216,16 +1480,43 @@ const App: React.FC = () => {
                         <button data-hint="Fade transition to program output" className="btn-transition fade" onClick={executeTransition}>FADE</button>
                     </div>
                 </div>
-                <div className="column-body">
+                <div 
+                    className="column-body"
+                    onContextMenu={(e) => {
+                        e.preventDefault();
+                        setContextMenu({
+                            x: e.clientX,
+                            y: e.clientY,
+                            type: 'sources-panel'
+                        });
+                    }}
+                >
                     {previewSources.map(source => {
-                        const canEdit = ['screen','window','camera','audio','video','image'].includes(source.type) || source.isBackground;
+                        const isRef = !!source.refId;
+                        const canEdit = !isRef && (['screen','window','camera','audio','video','image'].includes(source.type) || source.isBackground);
                         return (
                         <div
                             key={source.id}
                             className={`source-row ${selectedSourceId === source.id ? 'selected' : ''}`}
                             onClick={() => { setSelectedSourceId(source.id); setSelectedOverlayId(null); }}
-                            onDoubleClick={(e) => canEdit && handleSourceDoubleClick(source, e)}
-                            title={canEdit ? 'Double-click to change source' : ''}
+                            onDoubleClick={(e) => {
+                                if (isRef) {
+                                    alert("This is a reference copy. You can only edit the original item.");
+                                    return;
+                                }
+                                canEdit && handleSourceDoubleClick(source, e);
+                            }}
+                            onContextMenu={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setContextMenu({
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                    type: 'source',
+                                    targetId: source.id
+                                });
+                            }}
+                            title={canEdit ? 'Double-click to change source' : (isRef ? 'Reference source — properties are read-only' : '')}
                             style={{ cursor: canEdit ? 'pointer' : 'default' }}
                         >
                             <div className="row-meta">
@@ -1263,22 +1554,35 @@ const App: React.FC = () => {
 
             <div className="console-column flex-1">
                 <h3 className="column-title">Mixer & Overlays</h3>
-                <div className="column-body">
-                    <div className="audio-mixer-widget">
-                        <button data-hint="Toggle live microphone — adds your voice to the stream and recording" className={`toggle-btn ${isMicEnabled ? 'active' : ''}`} onClick={toggleMic}>
-                            {isMicEnabled ? <Mic size={14} /> : <MicOff size={14} />}
-                            <span>Microphone</span>
-                        </button>
-                        {isMicEnabled && (
-                            <div className="v-meter">
-                                <div className="meter-label">Master</div>
-                                <div className="meter-track"><div className="meter-fill"></div></div>
-                            </div>
-                        )}
-                    </div>
-                        <div className="overlay-list-widget">
+                <div className="column-body" style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div 
+                            className="overlay-list-widget"
+                            style={{ flex: 1, overflowY: 'auto' }}
+                            onContextMenu={(e) => {
+                                e.preventDefault();
+                                setContextMenu({
+                                    x: e.clientX,
+                                    y: e.clientY,
+                                    type: 'overlays-panel'
+                                });
+                            }}
+                        >
                             {previewOverlays.map(overlay => (
-                                <div key={overlay.id} className={`source-row ${selectedOverlayId === overlay.id ? 'selected' : ''}`} onClick={() => { setSelectedOverlayId(overlay.id); setSelectedSourceId(null); }}>
+                                <div 
+                                    key={overlay.id} 
+                                    className={`source-row ${selectedOverlayId === overlay.id ? 'selected' : ''}`} 
+                                    onClick={() => { setSelectedOverlayId(overlay.id); setSelectedSourceId(null); }}
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setContextMenu({
+                                            x: e.clientX,
+                                            y: e.clientY,
+                                            type: 'overlay',
+                                            targetId: overlay.id
+                                        });
+                                    }}
+                                >
                                     <Type size={14} />
                                     <span className="row-label">{overlay.title}</span>
                                     <div className="row-controls">
@@ -1300,11 +1604,20 @@ const App: React.FC = () => {
                 <div className="column-body">
                     {selectedSource ? (
                         <div className="editor-grid single">
-                            <div className="editor-field"><label>Label</label><input type="text" value={selectedSource.name} onChange={(e) => {
-                                const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, name: e.target.value } : s);
-                                setPreviewSources(updated);
-                                setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
-                            }} /></div>
+                            {rawSelectedSource?.refId && (
+                                <div className="reference-warning" style={{ padding: '8px 12px', background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.2)', borderRadius: '6px', margin: '0 0 12px 0', display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+                                    <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#eab308', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Reference Copy</span>
+                                    <span style={{ fontSize: '12px', color: 'var(--tx-2)' }}>
+                                        This item is a reference. Edit its properties on the original item.
+                                    </span>
+                                </div>
+                            )}
+                            <fieldset disabled={!!rawSelectedSource?.refId} style={{ border: 'none', padding: 0, margin: 0, minWidth: 0, width: '100%', display: 'contents' }}>
+                                <div className="editor-field"><label>Label</label><input type="text" value={selectedSource.name} onChange={(e) => {
+                                    const updated = previewSources.map(s => s.id === selectedSource.id ? { ...s, name: e.target.value } : s);
+                                    setPreviewSources(updated);
+                                    setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
+                                }} /></div>
 
                             {selectedSource.type === 'camera' && (
                                 <div className="camera-audio-settings" style={{ margin: '8px 0', padding: '12px', background: 'var(--bg-1)', borderRadius: '6px', border: '1px solid var(--border)' }}>
@@ -1502,9 +1815,11 @@ const App: React.FC = () => {
                                     </div>
                                 </div>
                             )}
+                            </fieldset>
 
                                  {selectedSource.isBackground ? (
-                                <div className="layout-tools" style={{ marginTop: '16px', padding: '0 12px' }}>
+                                     <fieldset disabled={!!rawSelectedSource?.refId} style={{ border: 'none', padding: 0, margin: 0, minWidth: 0, width: '100%', display: 'contents' }}>
+                                         <div className="layout-tools" style={{ marginTop: '16px', padding: '0 12px' }}>
                                     <label className="menu-label">Background Fit</label>
                                     <div className="editor-grid" style={{ gap: '4px', marginTop: '4px' }}>
                                         <button className={`btn-mini ${(!selectedSource.fit || selectedSource.fit === 'fill') ? 'primary' : 'secondary'}`} onClick={() => updateSourceTransform(selectedSource.id, { fit: 'fill' })}>Stretch</button>
@@ -1549,6 +1864,7 @@ const App: React.FC = () => {
                                         </button>
                                     </div>
                                 </div>
+                                </fieldset>
                             ) : (
                                 <>
                                     <div className="layout-tools" style={{ marginTop: '16px', padding: '0 12px' }}>
@@ -1580,6 +1896,15 @@ const App: React.FC = () => {
                         </div>
                     ) : selectedOverlay ? (
                         <>
+                            {rawSelectedOverlay?.refId && (
+                                <div className="reference-warning" style={{ padding: '8px 12px', background: 'rgba(234, 179, 8, 0.1)', border: '1px solid rgba(234, 179, 8, 0.2)', borderRadius: '6px', margin: '0 0 12px 0', display: 'flex', flexDirection: 'column', gap: '4px', width: '100%' }}>
+                                    <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#eab308', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Reference Copy</span>
+                                    <span style={{ fontSize: '12px', color: 'var(--tx-2)' }}>
+                                        This item is a reference. Edit its properties on the original item.
+                                    </span>
+                                </div>
+                            )}
+                            <fieldset disabled={!!rawSelectedOverlay?.refId} style={{ border: 'none', padding: 0, margin: 0, minWidth: 0, width: '100%', display: 'contents' }}>
                                  <div className="editor-grid single">
                                     <div className="editor-field"><label>Text</label><input type="text" value={selectedOverlay.title} onChange={(e) => updateOverlay(selectedOverlay.id, { title: e.target.value })} /></div>
                                     {(selectedOverlay.type === 'lower-third' || selectedOverlay.type === 'headline') && (
@@ -1694,6 +2019,7 @@ const App: React.FC = () => {
                                         </div>
                                     )}
                                 </div>
+                            </fieldset>
 
                                 <div className="menu-divider" style={{ margin: '16px 0' }}></div>
                                 
@@ -1728,25 +2054,41 @@ const App: React.FC = () => {
                                 )}
 
                                 {selectedOverlay.type === 'ticker' && (
-                                    <div className="ticker-controls">
-                                        <div className="editor-field" style={{ marginTop: '12px' }}>
-                                            <label>Scroll Speed</label>
-                                            <input type="range" className="seeker-bar" min="1" max="20" value={selectedOverlay.speed || 3} onChange={(e) => updateOverlay(selectedOverlay.id, { speed: parseInt(e.target.value) })} />
+                                    <fieldset disabled={!!rawSelectedOverlay?.refId} style={{ border: 'none', padding: 0, margin: 0, minWidth: 0, width: '100%', display: 'contents' }}>
+                                        <div className="ticker-controls">
+                                            <div className="editor-field" style={{ marginTop: '12px' }}>
+                                                <label>Scroll Speed</label>
+                                                <input type="range" className="seeker-bar" min="1" max="20" value={selectedOverlay.speed || 3} onChange={(e) => updateOverlay(selectedOverlay.id, { speed: parseInt(e.target.value) })} />
+                                            </div>
+                                            <div className="editor-grid" style={{ marginTop: '12px' }}>
+                                                <div className="editor-field"><label>Text Color</label><input type="color" value={selectedOverlay.style?.color || '#ffffff'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 24, color: '#ffffff', backgroundColor: '#0f172a' }), color: e.target.value } })} /></div>
+                                                <div className="editor-field"><label>Background</label><input type="color" value={selectedOverlay.style?.backgroundColor || '#0f172a'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 24, color: '#ffffff', backgroundColor: '#0f172a' }), backgroundColor: e.target.value } })} /></div>
+                                            </div>
                                         </div>
-                                        <div className="editor-grid" style={{ marginTop: '12px' }}>
-                                            <div className="editor-field"><label>Text Color</label><input type="color" value={selectedOverlay.style?.color || '#ffffff'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 24, color: '#ffffff', backgroundColor: '#0f172a' }), color: e.target.value } })} /></div>
-                                            <div className="editor-field"><label>Background</label><input type="color" value={selectedOverlay.style?.backgroundColor || '#0f172a'} onChange={(e) => updateOverlay(selectedOverlay.id, { style: { ...(selectedOverlay.style || { fontSize: 24, color: '#ffffff', backgroundColor: '#0f172a' }), backgroundColor: e.target.value } })} /></div>
-                                        </div>
-                                    </div>
+                                    </fieldset>
                                 )}
 
                                 <div className="menu-divider" style={{ margin: '16px 0' }}></div>
                                 <button className="btn-ghost w-full" onClick={() => setSelectedOverlayId(null)}>Deselect Overlay</button>
                         </>
                     ) : (
-                        <div className="empty-state">
-                            <MousePointer2 size={32} />
-                            <p>Select an item to edit properties</p>
+                        <div style={{ padding: '0 12px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                            <div className="editor-field">
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', fontWeight: '600', color: 'var(--tx-2)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Scene Name</label>
+                                <input 
+                                    type="text" 
+                                    value={scenes.find(s => s.id === activeSceneId)?.name || ''} 
+                                    onChange={(e) => {
+                                        const newName = e.target.value;
+                                        setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, name: newName } : s));
+                                    }} 
+                                    style={{ width: '100%', marginTop: '6px', padding: '8px', background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: '4px', color: 'var(--tx-1)', outline: 'none' }}
+                                />
+                            </div>
+                            <div className="empty-state" style={{ marginTop: '12px', background: 'transparent', border: 'none' }}>
+                                <MousePointer2 size={32} />
+                                <p>Select an item to edit properties</p>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -2349,6 +2691,18 @@ const App: React.FC = () => {
                 setIsPdfGridOpen(false);
             }}
         />
+      )}
+      {contextMenu && (
+        <div 
+          className="custom-context-menu" 
+          style={{ 
+            top: contextMenu.y, 
+            left: contextMenu.x 
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {renderContextMenuContent()}
+        </div>
       )}
     </div>
   );

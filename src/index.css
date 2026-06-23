@@ -1349,3 +1349,48 @@ body {
   background-color: rgb(239, 68, 68);
   transform: scale(1.1);
 }
+
+/* Custom Context Menu */
+.custom-context-menu {
+  position: fixed;
+  background-color: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  padding: 4px 0;
+  z-index: 10000;
+  min-width: 160px;
+}
+
+.custom-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--tx-1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.custom-context-menu-item:hover {
+  background-color: var(--accent-solid);
+  color: #ffffff;
+}
+
+.custom-context-menu-item.disabled {
+  color: var(--tx-2);
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.custom-context-menu-item.disabled:hover {
+  background-color: transparent;
+  color: var(--tx-2);
+}
+
+.custom-context-menu-divider {
+  height: 1px;
+  background-color: var(--border);
+  margin: 4px 0;
+}

@@ -32,6 +32,7 @@ interface Source {
     slowZoom?: boolean;
     blur?: boolean;
   };
+  refId?: string;
 }
 
 interface Overlay {
@@ -66,6 +67,7 @@ interface Overlay {
   subtitleY?: number;
   subtitleWidth?: number;
   subtitleHeight?: number;
+  refId?: string;
 }
 
 interface ComposerProps {
@@ -272,7 +274,7 @@ const Composer: React.FC<ComposerProps> = ({
                         ? { deviceId: { exact: source.audioDeviceId } }
                         : true);
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { deviceId: { exact: source.id }, width: 1920, height: 1080 }, 
+                    video: { deviceId: { exact: source.refId || source.id }, width: 1920, height: 1080 }, 
                     audio: audioConstraints 
                 });
             } else {
@@ -280,12 +282,12 @@ const Composer: React.FC<ComposerProps> = ({
                 const audioConstraints = isScreen ? {
                     mandatory: {
                         chromeMediaSource: 'desktop',
-                        chromeMediaSourceId: source.id
+                        chromeMediaSourceId: source.refId || source.id
                     }
                 } : false;
 
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: source.id, minWidth: 1280, maxWidth: 1920, minHeight: 720, maxHeight: 1080 } } as any,
+                    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: source.refId || source.id, minWidth: 1280, maxWidth: 1920, minHeight: 720, maxHeight: 1080 } } as any,
                     audio: audioConstraints as any
                 });
             }
