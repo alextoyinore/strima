@@ -75,7 +75,7 @@ export class FFmpegManager {
     const bitrate = options.bitrate || 6000;
     const output = (options.isStreaming && options.streamUrl) ? options.streamUrl : finalPath;
 
-    const logPath = path.join(app.getAppPath(), 'ffmpeg.log');
+    const logPath = path.join(app.getPath('userData'), 'ffmpeg.log');
     try {
       fs.writeFileSync(logPath, `--- FFmpeg Log Started at ${new Date().toISOString()} ---\n`);
       fs.appendFileSync(logPath, `Output Target: ${options.isStreaming ? 'Streaming to ' + options.streamUrl?.split('/').slice(0, 4).join('/') + '/[SECRET_KEY]' : finalPath}\n`);

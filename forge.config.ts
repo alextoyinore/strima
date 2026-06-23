@@ -6,14 +6,18 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import path from 'path';
+
+const isWin = process.platform === 'win32';
+const exeName = isWin ? 'ffmpeg.exe' : 'ffmpeg';
+const ffmpegBinaryPath = path.join(__dirname, 'node_modules', 'ffmpeg-static', exeName);
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: {
-      unpack: '**/node_modules/ffmpeg-static/**/*'
-    },
+    asar: true,
     executableName: 'strima',
-    icon: './assets/icon'
+    icon: './assets/icon',
+    extraResource: [ ffmpegBinaryPath ]
   },
   rebuildConfig: {},
   makers: [
