@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Move, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, MicOff, Volume2, Zap, ChevronRight, ChevronLeft, ChevronDown, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward, HelpCircle, Info, MousePointer2, ExternalLink, BookOpen, Check, FolderOpen } from 'lucide-react';
+import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, Volume2, Zap, ChevronRight, ChevronLeft, ChevronDown, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward, HelpCircle, Info, MousePointer2, ExternalLink, BookOpen, Check, FolderOpen } from 'lucide-react';
+import * as pdfjsLib from 'pdfjs-dist';
+// eslint-disable-next-line import/no-unresolved
+import PdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import Composer from './components/Composer';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorkerUrl;
 
 interface Source {
   id: string;
   name: string;
-  type: 'screen' | 'window' | 'camera' | 'image' | 'video' | 'text' | 'pdf' | 'slides' | 'audio';
+  type: 'screen' | 'window' | 'camera' | 'image' | 'video' | 'text' | 'pdf' | 'audio';
   thumbnail?: string;
   data?: string;
   visible: boolean;
@@ -102,7 +107,7 @@ const App: React.FC = () => {
     { id: 'scene-1', name: 'Main Scene', sources: [], overlays: [] }
   ]);
   const [showStreamKey, setShowStreamKey] = useState(false);
-  const [streamingConfig, setStreamingConfig] = useState({ rtmpUrl: 'rtmps://a.rtmp.youtube.com/live2', streamKey: '', bitrate: 4000 });
+  const [streamingConfig, setStreamingConfig] = useState<StreamingConfig>({ rtmpUrl: 'rtmps://a.rtmp.youtube.com/live2', streamKey: '', bitrate: 4000 });
   
   const [activeSceneId, setActiveSceneId] = useState('scene-1');
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
@@ -133,7 +138,6 @@ const App: React.FC = () => {
     setStatusMessage({ text, type });
     setTimeout(() => setStatusMessage(null), 3000);
   };
-  const [isMicEnabled, setIsMicEnabled] = useState(false);
   
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
   const [accentColor, setAccentColor] = useState<AccentColor>('slate');
@@ -171,7 +175,6 @@ const App: React.FC = () => {
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const composerStreamRef = useRef<MediaStream | null>(null);
-  const micStreamRef = useRef<MediaStream | null>(null);
 
   const [playbackStatus, setPlaybackStatus] = useState<{ id: string, currentTime: number, duration: number } | null>(null);
   const [seekRequest, setSeekRequest] = useState<{ id: string, time: number, timestamp: number } | null>(null);
@@ -384,22 +387,6 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [isRecordingPaused]);
 
-  const toggleMic = async () => {
-    if (isMicEnabled) {
-      if (micStreamRef.current) { micStreamRef.current.getTracks().forEach(t => t.stop()); micStreamRef.current = null; }
-      setIsMicEnabled(false);
-    } else {
-      try {
-        const audioConstraints = selectedMicId && selectedMicId !== 'default'
-            ? { deviceId: { exact: selectedMicId } }
-            : true;
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
-        micStreamRef.current = stream;
-        setIsMicEnabled(true);
-      } catch (e) { alert('Mic access denied'); }
-    }
-  };
-
   const openSelector = async () => {
     const screens = await window.electron.getSources();
     setAvailableScreens(screens);
@@ -524,14 +511,13 @@ const App: React.FC = () => {
     setScenes(scenes.map(s => s.id === activeSceneId ? { ...s, sources: updated } : s));
   };
 
-  const addFileSource = async (type: 'pdf' | 'slides') => {
-    const exts = type === 'pdf' ? ['pdf'] : ['pptx', 'ppt'];
-    const dataUrl = await window.electron.selectFile({ filters: [{ name: type === 'pdf' ? 'PDF' : 'PowerPoint', extensions: exts }] });
+  const addPdfSource = async () => {
+    const dataUrl = await window.electron.selectFile({ filters: [{ name: 'PDF', extensions: ['pdf'] }] });
     if (dataUrl) {
       const newSource: Source = { 
-        id: `${type}-${Date.now()}`, 
-        name: type.toUpperCase(), 
-        type, 
+        id: `pdf-${Date.now()}`, 
+        name: 'PDF', 
+        type: 'pdf', 
         data: dataUrl, 
         visible: true, x: 0, y: 0, width: 1920, height: 1080,
         page: 1,
@@ -1375,7 +1361,7 @@ const App: React.FC = () => {
                     <button data-hint="Import an audio file (MP3, WAV, AAC…) — plays on loop" className="asset-btn" title="Add Audio" onClick={addAudioSource}><Volume2 size={18} /><span>Audio</span></button>
                     <button data-hint="Add a video from a URL — paste a direct video link" className="asset-btn" title="Link Video" onClick={linkVideoSource}><Globe size={18} /><span>Link</span></button>
                     <button data-hint="Add a text element — style font, size, colour and alignment" className="asset-btn" title="Add Text" onClick={addTextSource}><Type size={18} /><span>Text</span></button>
-                    <button data-hint="Import a PDF or PowerPoint presentation as a slide source" className="asset-btn" title="Add PDF / Slides" onClick={() => addFileSource('pdf')}><Presentation size={18} /><span>Slides</span></button>
+                    <button data-hint="Import a PDF presentation as a slide source" className="asset-btn" title="Add PDF Slides" onClick={addPdfSource}><Presentation size={18} /><span>Slides</span></button>
                     <button data-hint="Add a lower third graphic — name, title and animated entry" className="asset-btn" title="Add Lower Third" onClick={() => addOverlay('lower-third')}><Layers size={18} /><span>Lower</span></button>
                     <button data-hint="Add a scrolling news ticker — text scrolls continuously across the bottom" className="asset-btn" title="Add Ticker" onClick={() => addOverlay('ticker')}><Zap size={18} /><span>Ticker</span></button>
                     <button data-hint="Add a headline graphic — bold main title with supporting subtitle bar" className="asset-btn" title="Add Headline" onClick={() => addOverlay('headline')}><FileText size={18} /><span>Headline</span></button>
@@ -1416,7 +1402,6 @@ const App: React.FC = () => {
                             onSourceMetadata={handleSourceMetadata}
                             onPlaybackUpdate={(id, current, duration) => setPlaybackStatus({ id, currentTime: current, duration })}
                             seekRequest={seekRequest}
-                            micStream={micStreamRef.current}
                         />
                     </div>
                 </div>
@@ -1430,7 +1415,6 @@ const App: React.FC = () => {
                             sources={resolvedProgramSources} 
                             overlays={resolvedProgramOverlays} 
                             onStreamCreated={handleLiveStreamCreated} 
-                            micStream={micStreamRef.current}
                         />
                     </div>
                 </div>
@@ -1536,7 +1520,7 @@ const App: React.FC = () => {
                                 </div>
                             </div>
                             <div className="row-controls">
-                                {(source.type === 'camera' || source.type === 'video' || source.type === 'image' || source.type === 'pdf' || source.type === 'slides') && !source.isBackground && (
+                                {(source.type === 'camera' || source.type === 'video' || source.type === 'image' || source.type === 'pdf') && !source.isBackground && (
                                     <button className="icon-btn xs" onClick={(e) => { e.stopPropagation(); toggleSourceFullscreen(source.id); }}><Maximize2 size={12} /></button>
                                 )}
                                 <button className="icon-btn xs" onClick={(e) => { e.stopPropagation(); toggleVisibility(source.id); }}>
@@ -1668,7 +1652,7 @@ const App: React.FC = () => {
                                 </div>
                             )}
 
-                            {(selectedSource.type === 'pdf' || selectedSource.type === 'slides') && (
+                            {selectedSource.type === 'pdf' && (
                                 <div className="pdf-controls-wrapper" style={{ margin: '8px 0', padding: '12px', background: 'var(--bg-1)', borderRadius: '6px', border: '1px solid var(--border)' }}>
                                     <div className="column-header-with-controls" style={{ marginBottom: '8px' }}>
                                         <label className="menu-label" style={{ margin: 0 }}>Slide Navigation</label>
@@ -2713,19 +2697,29 @@ const PdfGridModal = ({ source, onClose, onSelect }: { source: Source, onClose: 
 
     useEffect(() => {
         const loadThumbs = async () => {
-            if (!(window as any).pdfjsLib) return;
-            const pdfjsLib = (window as any).pdfjsLib;
-            const pdf = await pdfjsLib.getDocument(source.data).promise;
-            const newThumbs = [];
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const viewport = page.getViewport({ scale: 0.3 });
-                const canvas = document.createElement('canvas');
-                canvas.width = viewport.width; canvas.height = viewport.height;
-                await page.render({ canvasContext: canvas.getContext('2d')!, viewport }).promise;
-                newThumbs.push(canvas.toDataURL());
+            if (!source.data) return;
+            try {
+                const response = await fetch(source.data);
+                const arrayBuffer = await response.arrayBuffer();
+                const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
+                const pdf = await loadingTask.promise;
+                const newThumbs = [];
+                for (let i = 1; i <= pdf.numPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 0.3 });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+                    const ctx = canvas.getContext('2d');
+                    if (ctx) {
+                        await page.render({ canvasContext: ctx, viewport }).promise;
+                        newThumbs.push(canvas.toDataURL());
+                    }
+                }
+                setThumbs(newThumbs);
+            } catch (e) {
+                console.error('PDF Thumbs Load Error:', e);
             }
-            setThumbs(newThumbs);
         };
         loadThumbs();
     }, [source]);

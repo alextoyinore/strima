@@ -29,7 +29,7 @@ export class FFmpegManager {
           ffmpegPath = p;
           break;
         }
-      } catch (e) {}
+      } catch (e) { /* ignore */ }
     }
 
     if (ffmpegPath) {

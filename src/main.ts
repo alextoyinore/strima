@@ -44,7 +44,7 @@ const createWindow = () => {
     try {
       const bounds = mainWindow.getBounds();
       fs.writeFileSync(WINDOW_STATE_PATH, JSON.stringify(bounds));
-    } catch (e) {}
+    } catch (e) { /* ignore */ }
   };
 
   mainWindow.on('resize', saveState);
@@ -107,7 +107,7 @@ function getActiveWorkspacePath(): string {
       }
       globalConfig.activeWorkspacePath = activePath;
       fs.writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify(globalConfig, null, 2));
-    } catch (e) {}
+    } catch (e) { /* ignore */ }
   }
 
   return activePath;
@@ -234,7 +234,7 @@ ipcMain.handle('load-config', async () => {
   if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
     try {
       globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
-    } catch (e) {}
+    } catch (e) { /* ignore */ }
   }
 
   let workspaceConfig: any = null;
@@ -291,7 +291,7 @@ ipcMain.handle('open-workspace', async () => {
       }
       globalConfig.activeWorkspacePath = selectedPath;
       fs.writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify(globalConfig, null, 2));
-    } catch (e) {}
+    } catch (e) { /* ignore */ }
     
     const data = fs.readFileSync(configPath, 'utf-8');
     const workspaceConfig = inflateWorkspaceConfig(JSON.parse(data), selectedPath);
@@ -300,7 +300,7 @@ ipcMain.handle('open-workspace', async () => {
     if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
       try {
         globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
-      } catch (e) {}
+      } catch (e) { /* ignore */ }
     }
     
     return {
@@ -345,13 +345,13 @@ ipcMain.handle('create-workspace', async (event, name) => {
     }
     globalConfig.activeWorkspacePath = selectedPath;
     fs.writeFileSync(GLOBAL_CONFIG_PATH, JSON.stringify(globalConfig, null, 2));
-  } catch (e) {}
+  } catch (e) { /* ignore */ }
   
   let globalConfig: any = {};
   if (fs.existsSync(GLOBAL_CONFIG_PATH)) {
     try {
       globalConfig = JSON.parse(fs.readFileSync(GLOBAL_CONFIG_PATH, 'utf-8'));
-    } catch (e) {}
+    } catch (e) { /* ignore */ }
   }
   
   return {

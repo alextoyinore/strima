@@ -1,3 +1,9 @@
+// Vite ?url import support
+declare module '*?url' {
+  const url: string;
+  export default url;
+}
+
 export interface IElectronAPI {
   getSources: () => Promise<Electron.DesktopCapturerSource[]>;
   startFFmpeg: (options: { id?: string; outputPath?: string; isStreaming: boolean; streamUrl?: string }) => Promise<boolean>;

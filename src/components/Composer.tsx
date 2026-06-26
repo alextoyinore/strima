@@ -1,9 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
+import * as pdfjsLib from 'pdfjs-dist';
+// eslint-disable-next-line import/no-unresolved
+import PdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorkerUrl;
 
 interface Source {
   id: string;
   name: string;
-  type: 'screen' | 'window' | 'camera' | 'image' | 'video' | 'text' | 'pdf' | 'slides' | 'audio';
+  type: 'screen' | 'window' | 'camera' | 'image' | 'video' | 'text' | 'pdf' | 'audio';
   data?: string;
   visible: boolean;
   x: number;
@@ -83,7 +88,6 @@ interface ComposerProps {
   seekRequest?: { id: string, time: number, timestamp: number } | null;
   showSafeAreas?: boolean;
   showGrid?: boolean;
-  micStream?: MediaStream | null;
 }
 
 const Composer: React.FC<ComposerProps> = ({ 
@@ -98,8 +102,7 @@ const Composer: React.FC<ComposerProps> = ({
   onPlaybackUpdate, 
   seekRequest,
   showSafeAreas,
-  showGrid,
-  micStream
+  showGrid
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoElements = useRef<Record<string, HTMLVideoElement>>({});
@@ -116,7 +119,6 @@ const Composer: React.FC<ComposerProps> = ({
   const audioContext = useRef<AudioContext>();
   const audioDestination = useRef<MediaStreamAudioDestinationNode>();
   const audioNodes = useRef<Record<string, { source: AudioNode, gain: GainNode }>>({});
-  const micNode = useRef<{ source: MediaStreamAudioSourceNode, gain: GainNode } | null>(null);
 
   const isDragging = useRef(false);
   const dragStartPos = useRef({ x: 0, y: 0 });
@@ -179,16 +181,13 @@ const Composer: React.FC<ComposerProps> = ({
         const cacheKey = `${source.id}-${pageNum}`;
         if (!source.data || pdfCanvases.current[cacheKey]) return;
         try {
-            if (!(window as any).pdfjsLib) {
-                const script = document.createElement('script');
-                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-                document.head.appendChild(script);
-                await new Promise(resolve => script.onload = resolve);
-            }
-            const pdfjsLib = (window as any).pdfjsLib;
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-            
-            const loadingTask = pdfjsLib.getDocument(source.data);
+            // Pre-fetch as ArrayBuffer in the renderer thread so the pdfjs worker
+            // never has to directly access the Electron media:// protocol (which
+            // it cannot do from its sandboxed worker context).
+            const response = await fetch(source.data);
+            const arrayBuffer = await response.arrayBuffer();
+
+            const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) });
             const pdf = await loadingTask.promise;
             
             if (source.totalPages !== pdf.numPages) {
@@ -244,7 +243,7 @@ const Composer: React.FC<ComposerProps> = ({
       for (const source of sources) {
         if (!source.visible) continue;
         
-        if ((source.type === 'pdf' || source.type === 'slides') && source.data) {
+        if (source.type === 'pdf' && source.data) {
             loadPdf(source);
         }
 
@@ -428,25 +427,7 @@ const Composer: React.FC<ComposerProps> = ({
     });
   }, [sources]);
 
-  // Handle Global Microphone
-  useEffect(() => {
-    if (micStream && audioContext.current && audioDestination.current) {
-        if (micNode.current) {
-            micNode.current.source.disconnect();
-            micNode.current.gain.disconnect();
-        }
-        const sourceNode = audioContext.current.createMediaStreamSource(micStream);
-        const gainNode = audioContext.current.createGain();
-        gainNode.gain.value = 1.0;
-        sourceNode.connect(gainNode);
-        gainNode.connect(audioDestination.current);
-        micNode.current = { source: sourceNode, gain: gainNode };
-    } else if (!micStream && micNode.current) {
-        micNode.current.source.disconnect();
-        micNode.current.gain.disconnect();
-        micNode.current = null;
-    }
-  }, [micStream]);
+
 
   // Handle Seek Requests
   useEffect(() => {
@@ -548,7 +529,7 @@ const Composer: React.FC<ComposerProps> = ({
             ctx.fillStyle = s.color; ctx.textAlign = s.textAlign; ctx.font = `${s.italic ? 'italic ' : ''}${s.bold ? 'bold ' : ''}${s.fontSize}px ${s.fontFamily}, sans-serif`;
             const lines = (source.data || '').split('\n');
             lines.forEach((l, i) => { const tX = s.textAlign === 'center' ? source.x + source.width / 2 : (s.textAlign === 'right' ? source.x + source.width : source.x); ctx.fillText(l, tX, source.y + s.fontSize + (i * s.fontSize * 1.2)); });
-        } else if (source.type === 'pdf' || source.type === 'slides') {
+        } else if (source.type === 'pdf') {
           const pdfCanvas = pdfCanvases.current[`${source.id}-${source.page || 1}`];
           if (pdfCanvas) drawSource(source, pdfCanvas, ctx);
           else { ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'; ctx.fillRect(source.x, source.y, source.width, source.height); ctx.fillStyle = 'white'; ctx.font = '24px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Loading Slide...', source.x + source.width / 2, source.y + source.height / 2); }
