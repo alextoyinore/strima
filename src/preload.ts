@@ -16,4 +16,6 @@ contextBridge.exposeInMainWorld('electron', {
   selectBackgroundFile: (options: any) => ipcRenderer.invoke('select-background-file', options),
   getBackgroundAssets: () => ipcRenderer.invoke('get-background-assets'),
   deleteBackgroundAsset: (fileName: string) => ipcRenderer.invoke('delete-background-asset', fileName),
+  getCpuUsage: () => ipcRenderer.invoke('get-cpu-usage'),
 });
+

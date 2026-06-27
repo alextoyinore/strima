@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { streamManager } from '../stream-manager';
 import * as pdfjsLib from 'pdfjs-dist';
 // eslint-disable-next-line import/no-unresolved
 import PdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -109,12 +110,20 @@ const Composer: React.FC<ComposerProps> = ({
   const audioElements = useRef<Record<string, HTMLAudioElement>>({});
   const imageElements = useRef<Record<string, HTMLImageElement>>({});
   const pdfCanvases = useRef<Record<string, HTMLCanvasElement>>({});
-  const streams = useRef<Record<string, MediaStream>>({});
+  // streamKeys maps source.id → the key used in streamManager (= source.refId || source.id)
+  // This lets two Composer instances share the same physical capture stream.
+  const streamKeys = useRef<Record<string, string>>({});
   const cameraAudioDeviceIds = useRef<Record<string, string>>({});
   const animationFrameRef = useRef<number>();
   const tickerX = useRef(1920);
   const overlayProgress = useRef<Record<string, number>>({});
   const bgEffectStartTime = useRef<Record<string, number>>({});
+  // Cached sorted sources — updated when sources change, not on every animation frame
+  const sortedSourcesRef = useRef<Source[]>([]);
+  // Pre-rendered blur canvases for background images — avoids per-frame CPU blur convolution
+  const blurredCanvases = useRef<Record<string, HTMLCanvasElement>>({});
+  // Tracks source ID set to gate transition snapshots on add/remove only, not property changes
+  const prevSourceIdsRef = useRef<string>('');
 
   const audioContext = useRef<AudioContext>();
   const audioDestination = useRef<MediaStreamAudioDestinationNode>();
@@ -210,13 +219,13 @@ const Composer: React.FC<ComposerProps> = ({
     const updateSources = async () => {
       // Cleanup removed sources
       const activeIds = new Set(sources.map(s => s.id));
-      Object.keys(streams.current).forEach(id => {
-          if (!activeIds.has(id)) {
-              streams.current[id].getTracks().forEach(t => t.stop());
-              delete streams.current[id];
-              delete videoElements.current[id];
-              delete cameraAudioDeviceIds.current[id];
-              delete bgEffectStartTime.current[id];
+      Object.keys(streamKeys.current).forEach(srcId => {
+          if (!activeIds.has(srcId)) {
+              streamManager.release(streamKeys.current[srcId]);
+              delete streamKeys.current[srcId];
+              delete videoElements.current[srcId];
+              delete cameraAudioDeviceIds.current[srcId];
+              delete bgEffectStartTime.current[srcId];
           }
       });
       Object.keys(audioNodes.current).forEach(id => {
@@ -228,7 +237,14 @@ const Composer: React.FC<ComposerProps> = ({
           }
       });
 
-      if (canvasRef.current && !isTransitioning.current) {
+      // Only snapshot for scene transitions when the SOURCE SET changes (adds/removes).
+      // Property-only updates (volume, position, visibility) no longer cause a full
+      // 1920x1080 canvas allocation + drawImage copy on every drag event.
+      const currentIds = [...activeIds].sort().join(',');
+      const idsChanged = currentIds !== prevSourceIdsRef.current;
+      prevSourceIdsRef.current = currentIds;
+
+      if (idsChanged && canvasRef.current && !isTransitioning.current) {
           const snapshot = document.createElement('canvas');
           snapshot.width = 1920; snapshot.height = 1080;
           const sCtx = snapshot.getContext('2d');
@@ -249,12 +265,12 @@ const Composer: React.FC<ComposerProps> = ({
 
         const currentAudioDeviceId = source.audioDeviceId || 'default';
         const isCamera = source.type === 'camera';
-        const needRecreate = isCamera && streams.current[source.id] && cameraAudioDeviceIds.current[source.id] !== currentAudioDeviceId;
+        const needRecreate = isCamera && streamKeys.current[source.id] && cameraAudioDeviceIds.current[source.id] !== currentAudioDeviceId;
 
         if (needRecreate) {
-            if (streams.current[source.id]) {
-                streams.current[source.id].getTracks().forEach(t => t.stop());
-                delete streams.current[source.id];
+            if (streamKeys.current[source.id]) {
+                streamManager.release(streamKeys.current[source.id]);
+                delete streamKeys.current[source.id];
             }
             if (audioNodes.current[source.id]) {
                 audioNodes.current[source.id].source.disconnect();
@@ -263,39 +279,41 @@ const Composer: React.FC<ComposerProps> = ({
             }
         }
 
-        if ((source.type === 'screen' || source.type === 'window' || source.type === 'camera') && !streams.current[source.id]) {
+        if ((source.type === 'screen' || source.type === 'window' || source.type === 'camera') && !streamKeys.current[source.id]) {
           try {
-            let stream: MediaStream;
-            if (source.type === 'camera') {
+            // streamKey is the physical source identifier shared via streamManager.
+            // Both Composer instances use the same key for the same device → one stream, two consumers.
+            const streamKey = source.refId || source.id;
+            const stream = await streamManager.acquire(streamKey, async () => {
+              if (source.type === 'camera') {
                 const audioConstraints = source.audioDeviceId === 'none'
                     ? false
                     : (source.audioDeviceId && source.audioDeviceId !== 'default'
                         ? { deviceId: { exact: source.audioDeviceId } }
                         : true);
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { deviceId: { exact: source.refId || source.id }, width: 1920, height: 1080 }, 
+                // Capture at 720p / 30fps — sufficient quality for a 1080p canvas draw, much lower decode cost
+                return navigator.mediaDevices.getUserMedia({ 
+                    video: { deviceId: { exact: streamKey }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } } as any, 
                     audio: audioConstraints 
                 });
-            } else {
+              } else {
                 const isScreen = source.type === 'screen';
                 const audioConstraints = isScreen ? {
-                    mandatory: {
-                        chromeMediaSource: 'desktop',
-                        chromeMediaSourceId: source.refId || source.id
-                    }
+                    mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: streamKey }
                 } : false;
-
-                stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: source.refId || source.id, minWidth: 1280, maxWidth: 1920, minHeight: 720, maxHeight: 1080 } } as any,
+                // Cap desktop capture at 30fps — the OS/driver delivers frames at monitor refresh otherwise
+                return navigator.mediaDevices.getUserMedia({ 
+                    video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: streamKey, minWidth: 1280, maxWidth: 1920, minHeight: 720, maxHeight: 1080, maxFrameRate: 30 } } as any,
                     audio: audioConstraints as any
                 });
-            }
+              }
+            });
+            streamKeys.current[source.id] = streamKey;
             const video = document.createElement('video');
             video.srcObject = stream;
             video.muted = false; video.volume = 0;
             video.setAttribute('playsinline', 'true');
             video.play().catch(e => console.warn(e));
-            streams.current[source.id] = stream;
             videoElements.current[source.id] = video;
             if (isCamera) {
                 cameraAudioDeviceIds.current[source.id] = currentAudioDeviceId;
@@ -318,10 +336,25 @@ const Composer: React.FC<ComposerProps> = ({
         if (source.type === 'image' && source.data) {
           const img = imageElements.current[source.id];
           if (!img || img.getAttribute('data-src') !== source.data) {
+            delete blurredCanvases.current[source.id]; // invalidate cached blur when source image changes
             const newImg = new Image();
             newImg.src = source.data;
             newImg.crossOrigin = 'anonymous';
             newImg.setAttribute('data-src', source.data);
+            newImg.onload = () => {
+              // Pre-render the blurred variant once, off the hot path.
+              // The render loop then just draws this canvas — zero per-frame convolution cost.
+              const blurCanvas = document.createElement('canvas');
+              blurCanvas.width = 1920; blurCanvas.height = 1080;
+              const bCtx = blurCanvas.getContext('2d');
+              if (bCtx) {
+                bCtx.filter = 'blur(16px)';
+                // Draw slightly larger to prevent the blur kernel from producing a faded edge
+                bCtx.drawImage(newImg, -32, -32, 1920 + 64, 1080 + 64);
+                bCtx.filter = 'none';
+              }
+              blurredCanvases.current[source.id] = blurCanvas;
+            };
             imageElements.current[source.id] = newImg;
           }
         }
@@ -407,6 +440,13 @@ const Composer: React.FC<ComposerProps> = ({
             imageElements.current[overlay.id] = img;
         }
       }
+
+      // Cache the sorted source order so the render loop never re-sorts each frame
+      sortedSourcesRef.current = [...sources].sort((a, b) => {
+        if (a.isBackground && !b.isBackground) return -1;
+        if (!a.isBackground && b.isBackground) return 1;
+        return 0;
+      });
     };
     updateSources();
   }, [sources, overlays, interactive]);
@@ -437,17 +477,16 @@ const Composer: React.FC<ComposerProps> = ({
     }
   }, [seekRequest]);
 
-  // Report Playback Progress
+  // Report Playback Progress — guard skips interval when no media is selected or playing
   useEffect(() => {
-    if (!onPlaybackUpdate) return;
+    if (!onPlaybackUpdate || !selectedSourceId) return;
     const interval = setInterval(() => {
-        if (selectedSourceId) {
-            const el = videoElements.current[selectedSourceId] || audioElements.current[selectedSourceId];
-            if (el && !isNaN(el.duration)) {
-                onPlaybackUpdate(selectedSourceId, el.currentTime, el.duration);
-            }
+        const el = videoElements.current[selectedSourceId] || audioElements.current[selectedSourceId];
+        // Only push updates while actually playing — avoids constant state updates when paused
+        if (el && !isNaN(el.duration) && !el.paused) {
+            onPlaybackUpdate(selectedSourceId, el.currentTime, el.duration);
         }
-    }, 100);
+    }, 250);
     return () => clearInterval(interval);
   }, [onPlaybackUpdate, selectedSourceId]);
 
@@ -514,14 +553,25 @@ const Composer: React.FC<ComposerProps> = ({
 
   useEffect(() => {
     const canvas = canvasRef.current; if (!canvas) return;
-    const ctx = canvas.getContext('2d'); if (!ctx) return;
-    const render = () => {
-      ctx.fillStyle = 'black'; ctx.fillRect(0, 0, canvas.width, canvas.height);
-      const sortedSources = [...sources].sort((a, b) => {
-        if (a.isBackground && !b.isBackground) return -1;
-        if (!a.isBackground && b.isBackground) return 1;
-        return 0;
-      });
+    // alpha: false skips alpha compositing — safe because the background is always solid black
+    const ctx = canvas.getContext('2d', { alpha: false }); if (!ctx) return;
+
+    let lastTime = performance.now();
+    // Program output Composer (has onStreamCreated) needs 60fps for the MediaRecorder.
+    // Preview/staging view only needs 30fps — halves the canvas draw work for that instance.
+    const fpsInterval = 1000 / (onStreamCreated ? 60 : 30);
+
+    const render = (nowTime: number) => {
+      animationFrameRef.current = requestAnimationFrame(render);
+
+      const elapsed = nowTime - lastTime;
+      if (elapsed < fpsInterval) return;
+
+      lastTime = nowTime - (elapsed % fpsInterval);
+
+      ctx.fillStyle = '#000000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // Use pre-sorted ref — no array allocation or O(n log n) sort on every frame
+      const sortedSources = sortedSourcesRef.current;
       sortedSources.forEach(source => {
         if (!source.visible) return;
         if (source.type === 'text') {
@@ -540,7 +590,6 @@ const Composer: React.FC<ComposerProps> = ({
             const hasEffect = fx && (fx.slowZoom || fx.blur);
             if (hasEffect) {
               ctx.save();
-              if (fx!.blur) ctx.filter = 'blur(14px)';
               if (fx!.slowZoom) {
                 if (!bgEffectStartTime.current[source.id]) bgEffectStartTime.current[source.id] = Date.now();
                 const elapsed = (Date.now() - bgEffectStartTime.current[source.id]) / 1000;
@@ -549,7 +598,12 @@ const Composer: React.FC<ComposerProps> = ({
                 ctx.scale(zoom, zoom);
                 ctx.translate(-960, -540);
               }
-              drawSource(source, img, ctx);
+              // Use the pre-rendered blur canvas instead of ctx.filter per-frame.
+              // Falls back to the original image if the blur canvas isn't ready yet.
+              const drawEl = (fx!.blur && blurredCanvases.current[source.id])
+                ? blurredCanvases.current[source.id]
+                : img;
+              drawSource(source, drawEl, ctx);
               ctx.restore();
             } else {
               if (bgEffectStartTime.current[source.id]) delete bgEffectStartTime.current[source.id];
@@ -800,9 +854,8 @@ const Composer: React.FC<ComposerProps> = ({
         ctx.restore();
       }
 
-      animationFrameRef.current = requestAnimationFrame(render);
     };
-    render();
+    animationFrameRef.current = requestAnimationFrame(render);
     return () => { if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current); };
   }, [sources, overlays, selectedSourceId, interactive, showSafeAreas, showGrid]);
 

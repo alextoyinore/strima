@@ -42,7 +42,7 @@ export class FFmpegManager {
     this.ffmpegPathSet = true;
   }
 
-  start(outputPath: string, options: { isStreaming: boolean; streamUrl?: string; bitrate?: number }) {
+  start(outputPath: string, options: { isStreaming: boolean; streamUrl?: string; bitrate?: number; mimeType?: string }) {
     if (this.command) return;
 
     this.resolveFFmpegPath();
@@ -86,19 +86,37 @@ export class FFmpegManager {
     console.log('Starting FFmpeg for:', options.isStreaming ? 'Streaming' : 'Recording');
     
     this.command = ffmpeg(this.inputStream)
-      .inputFormat('webm')
-      .videoCodec('libx264')
-      .addOptions([
-        '-loglevel verbose',
-        '-preset ultrafast',
-        '-tune zerolatency',
-        `-maxrate ${bitrate}k`,
-        `-bufsize ${bitrate * 2}k`,
-        '-pix_fmt yuv420p',
-        '-g 60',
-        '-x264-params keyint=60:min-keyint=60:scenecut=0',
-        '-r 30'
-      ])
+      .inputFormat('webm');
+
+    const isH264 = options.mimeType && (options.mimeType.toLowerCase().includes('h264') || options.mimeType.toLowerCase().includes('h.264'));
+
+    if (isH264) {
+      console.log('FFmpeg: Input codec is H.264, using stream copy for video to save CPU.');
+      try { fs.appendFileSync(logPath, "FFmpeg: Using video stream copy (copy codec) to save CPU.\n"); } catch (e) { /* ignore */ }
+      this.command
+        .videoCodec('copy')
+        .addOptions([
+          '-loglevel verbose'
+        ]);
+    } else {
+      console.log('FFmpeg: Input codec is not H.264, transcoding video.');
+      try { fs.appendFileSync(logPath, "FFmpeg: Transcoding video to H.264 via libx264.\n"); } catch (e) { /* ignore */ }
+      this.command
+        .videoCodec('libx264')
+        .addOptions([
+          '-loglevel verbose',
+          '-preset ultrafast',
+          '-tune zerolatency',
+          `-maxrate ${bitrate}k`,
+          `-bufsize ${bitrate * 2}k`,
+          '-pix_fmt yuv420p',
+          '-g 60',
+          '-x264-params keyint=60:min-keyint=60:scenecut=0',
+          '-r 30'
+        ]);
+    }
+
+    this.command
       .audioCodec('aac')
       .audioBitrate('128k')
       .audioFrequency(44100)
@@ -163,8 +181,8 @@ export class FFmpegManager {
 
 const ffmpegManager = new FFmpegManager();
 
-ipcMain.handle('start-ffmpeg', async (event, { outputPath, isStreaming, streamUrl, bitrate }) => {
-  ffmpegManager.start(outputPath, { isStreaming, streamUrl, bitrate });
+ipcMain.handle('start-ffmpeg', async (event, { outputPath, isStreaming, streamUrl, bitrate, mimeType }) => {
+  ffmpegManager.start(outputPath, { isStreaming, streamUrl, bitrate, mimeType });
   return true;
 });
 

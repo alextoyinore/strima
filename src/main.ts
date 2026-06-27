@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, desktopCapturer, dialog, protocol, net, shell } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import started from 'electron-squirrel-startup';
 import './main/ffmpeg-manager';
@@ -64,6 +65,28 @@ ipcMain.handle('get-sources', async () => {
     thumbnailSize: { width: 320, height: 180 },
     fetchWindowIcons: true
   });
+});
+
+// CPU usage — sample idle/total times over a short interval and return %
+ipcMain.handle('get-cpu-usage', async () => {
+  const sample = () => {
+    const cpus = os.cpus();
+    let totalIdle = 0, totalTick = 0;
+    for (const cpu of cpus) {
+      for (const type of Object.values(cpu.times)) totalTick += type;
+      totalIdle += cpu.times.idle;
+    }
+    return { idle: totalIdle, total: totalTick };
+  };
+
+  const s1 = sample();
+  await new Promise(r => setTimeout(r, 200));
+  const s2 = sample();
+
+  const idleDiff  = s2.idle  - s1.idle;
+  const totalDiff = s2.total - s1.total;
+  const used = totalDiff === 0 ? 0 : (1 - idleDiff / totalDiff) * 100;
+  return Math.round(used);
 });
 
 ipcMain.on('window-control', (event, command) => {

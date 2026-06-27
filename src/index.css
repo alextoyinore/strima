@@ -1249,6 +1249,41 @@ body {
   letter-spacing: 0.5px;
 }
 
+/* ── CPU Usage Pill ─────────────────────────────────────────────────────── */
+.cpu-pill {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  transition: color 0.5s, background-color 0.5s, border-color 0.5s;
+  font-variant-numeric: tabular-nums;
+}
+
+.cpu-pill.cpu-low {
+  color: #34d399;
+  background-color: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.2);
+}
+
+.cpu-pill.cpu-medium {
+  color: #fbbf24;
+  background-color: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+.cpu-pill.cpu-high {
+  color: #f87171;
+  background-color: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+
 /* Draggable Background Popup styling */
 .draggable-popup {
   background-color: var(--bg-2);

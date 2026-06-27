@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Monitor, Camera, Mic, Play, Square, Settings as SettingsIcon, Layers, Plus, X, Video, Radio, Minus, Square as Maximize, Palette, Sun, Moon, Laptop, Maximize2, Save, Trash2, Type, Image as ImageIcon, Globe, Volume2, Zap, ChevronRight, ChevronLeft, ChevronDown, Grid, Eye, EyeOff, Film, FileText, Presentation, Pause, RotateCcw, AlignLeft, AlignCenter, AlignRight, Bold, Italic, SkipBack, SkipForward, HelpCircle, Info, MousePointer2, ExternalLink, BookOpen, Check, FolderOpen } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 // eslint-disable-next-line import/no-unresolved
@@ -131,6 +131,7 @@ const App: React.FC = () => {
   const [statusBarHint, setStatusBarHint] = useState<string | null>(null);
   const [streamElapsed, setStreamElapsed] = useState(0);
   const [recordElapsed, setRecordElapsed] = useState(0);
+  const [cpuUsage, setCpuUsage] = useState<number | null>(null);
   const streamStartRef = useRef<number | null>(null);
   const recordStartRef = useRef<number | null>(null);
   
@@ -386,6 +387,21 @@ const App: React.FC = () => {
     }, 1000);
     return () => clearInterval(interval);
   }, [isRecordingPaused]);
+
+  // CPU usage polling — every 2 seconds
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      if (!alive) return;
+      try {
+        const pct = await window.electron.getCpuUsage();
+        if (alive) setCpuUsage(pct);
+      } catch { /* ignore */ }
+      if (alive) setTimeout(poll, 2000);
+    };
+    poll();
+    return () => { alive = false; };
+  }, []);
 
   const openSelector = async () => {
     const screens = await window.electron.getSources();
@@ -824,19 +840,20 @@ const App: React.FC = () => {
         const baseUrl = streamingConfig.rtmpUrl.trim();
         const normalizedUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
         const fullStreamUrl = `${normalizedUrl}${streamingConfig.streamKey.trim()}`;
+        const mime = getBestSupportedMimeType();
 
         await window.electron.startFFmpeg({ 
           isStreaming: true, 
           streamUrl: fullStreamUrl,
-          bitrate: streamingConfig.bitrate
+          bitrate: streamingConfig.bitrate,
+          mimeType: mime
         });
 
-        const mime = getBestSupportedMimeType();
         console.log('Starting MediaRecorder for streaming with mimeType:', mime);
 
         const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: mime, videoBitsPerSecond: 6000000 });
         recorder.ondataavailable = async (e) => { if (e.data.size > 0) window.electron.sendChunk(await e.data.arrayBuffer()); };
-        recorder.start(1000);
+        recorder.start(250);
         mediaRecorderRef.current = recorder;
         showStatus('Live!', 'success');
     } catch (e) {
@@ -859,13 +876,13 @@ const App: React.FC = () => {
     setRecordElapsed(0);
     showStatus('Starting recording...', 'info');
     try {
-        await window.electron.startFFmpeg({ outputPath: 'recording.mp4', isStreaming: false });
         const mime = getBestSupportedMimeType();
+        await window.electron.startFFmpeg({ outputPath: 'recording.mp4', isStreaming: false, mimeType: mime });
         console.log('Starting MediaRecorder for recording with mimeType:', mime);
 
         const recorder = new MediaRecorder(composerStreamRef.current, { mimeType: mime, videoBitsPerSecond: 5000000 });
         recorder.ondataavailable = async (e) => { if (e.data.size > 0) window.electron.sendChunk(await e.data.arrayBuffer()); };
-        recorder.start(1000);
+        recorder.start(250);
         mediaRecorderRef.current = recorder;
         showStatus('Recording Started', 'success');
     } catch (e) {
@@ -1003,10 +1020,10 @@ const App: React.FC = () => {
     return overlay;
   }, [scenes]);
 
-  const resolvedPreviewSources = previewSources.map(s => resolveSource(s));
-  const resolvedPreviewOverlays = previewOverlays.map(o => resolveOverlay(o));
-  const resolvedProgramSources = programSources.map(s => resolveSource(s));
-  const resolvedProgramOverlays = programOverlays.map(o => resolveOverlay(o));
+  const resolvedPreviewSources = useMemo(() => previewSources.map(s => resolveSource(s)), [previewSources, resolveSource]);
+  const resolvedPreviewOverlays = useMemo(() => previewOverlays.map(o => resolveOverlay(o)), [previewOverlays, resolveOverlay]);
+  const resolvedProgramSources = useMemo(() => programSources.map(s => resolveSource(s)), [programSources, resolveSource]);
+  const resolvedProgramOverlays = useMemo(() => programOverlays.map(o => resolveOverlay(o)), [programOverlays, resolveOverlay]);
 
   const rawSelectedSource = previewSources.find(s => s.id === selectedSourceId);
   const selectedSource = rawSelectedSource ? resolveSource(rawSelectedSource) : undefined;
@@ -2097,6 +2114,27 @@ const App: React.FC = () => {
           </span>
         </div>
         <div className="status-bar-right">
+          {cpuUsage !== null && (
+            <div className={`cpu-pill ${
+              cpuUsage >= 85 ? 'cpu-high' :
+              cpuUsage >= 60 ? 'cpu-medium' :
+              'cpu-low'
+            }`}>
+              <svg width="8" height="8" viewBox="0 0 8 8" fill="none" style={{ flexShrink: 0 }}>
+                <rect x="1" y="1" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1" fill="none"/>
+                <rect x="2.5" y="2.5" width="3" height="3" fill="currentColor"/>
+                <line x1="3" y1="0" x2="3" y2="1" stroke="currentColor" strokeWidth="0.8"/>
+                <line x1="5" y1="0" x2="5" y2="1" stroke="currentColor" strokeWidth="0.8"/>
+                <line x1="3" y1="7" x2="3" y2="8" stroke="currentColor" strokeWidth="0.8"/>
+                <line x1="5" y1="7" x2="5" y2="8" stroke="currentColor" strokeWidth="0.8"/>
+                <line x1="0" y1="3" x2="1" y2="3" stroke="currentColor" strokeWidth="0.8"/>
+                <line x1="0" y1="5" x2="1" y2="5" stroke="currentColor" strokeWidth="0.8"/>
+                <line x1="7" y1="3" x2="8" y2="3" stroke="currentColor" strokeWidth="0.8"/>
+                <line x1="7" y1="5" x2="8" y2="5" stroke="currentColor" strokeWidth="0.8"/>
+              </svg>
+              CPU {cpuUsage}%
+            </div>
+          )}
           {isStreaming && (
             <div className="status-indicator live">
               <span className="dot" />
